@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Button } from './components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from './components/ui/card';
 import { Badge } from './components/ui/badge';
+import { Button } from './components/ui/button';
 import { Separator } from './components/ui/separator';
-import { Film, RotateCcw, Zap, Users, Star, Accessibility, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
+import { Film, RotateCcw, Zap, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
+import BookingWizard from './components/BookingWizard';
 
 const API = 'http://localhost:3001/api';
 const ROWS = 'ABCDEFGHIJKLMNO'.split('');
@@ -29,10 +30,8 @@ function getSeatStyle(seat, flashSet) {
 
 export default function App() {
   const [cinema, setCinema]         = useState(null);
-  const [groupSize, setGroupSize]   = useState(2);
-  const [bookType, setBookType]     = useState('NORMAL');
-  const [admin, setAdmin]           = useState(false);        // admin override (bypass rules)
-  const [adminPanel, setAdminPanel] = useState(false);        // show/hide admin section
+  const [admin, setAdmin]           = useState(false);
+  const [adminPanel, setAdminPanel] = useState(false);
   const [flash, setFlash]           = useState(new Set());
   const [toast, setToast]           = useState(null);
   const [loading, setLoading]       = useState(false);
@@ -68,13 +67,14 @@ export default function App() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function book() {
+  // Called by BookingWizard with { groupSize, bookingType }
+  async function handleBook({ groupSize, bookingType }) {
     setLoading(true);
     try {
       const r = await fetch(`${API}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupSize, bookingType: bookType, adminOverride: admin }),
+        body: JSON.stringify({ groupSize, bookingType, adminOverride: admin }),
       });
       const d = await r.json();
       if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
@@ -82,7 +82,7 @@ export default function App() {
       const ids = new Set(d.booked.map(s => `${s.row}${s.col}`));
       setFlash(ids);
       setTimeout(() => setFlash(new Set()), 1800);
-      showToast(`✓ Booked: ${[...ids].join('  ')}`);
+      showToast(`✓ Booked ${groupSize} ${bookingType} seat${groupSize > 1 ? 's' : ''}: ${[...ids].join('  ')}`);
     } catch {
       showToast('Booking failed', false);
     } finally {
@@ -132,9 +132,7 @@ export default function App() {
           <Film className="w-5 h-5 text-primary" />
           <span className="font-semibold tracking-tight">Cinema Seating</span>
         </div>
-
         <div className="flex items-center gap-3">
-          {/* ── Admin Controls toggle pill ── */}
           <button
             onClick={() => setAdminPanel(p => !p)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
@@ -145,11 +143,8 @@ export default function App() {
           >
             <ShieldAlert className="w-3.5 h-3.5" />
             Admin controls
-            {adminPanel
-              ? <ChevronUp className="w-3 h-3" />
-              : <ChevronDown className="w-3 h-3" />}
+            {adminPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
-
           <span className="text-muted-foreground text-xs">{s.booked} / {s.total} booked</span>
           <div className="w-28 h-1.5 rounded-full bg-secondary overflow-hidden">
             <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${s.pct}%` }} />
@@ -171,71 +166,12 @@ export default function App() {
       <div className="flex gap-5 p-5 items-start">
 
         {/* ── SIDEBAR ── */}
-        <aside className="w-56 shrink-0 flex flex-col gap-4">
+        <aside className="w-60 shrink-0 flex flex-col gap-4">
 
-          {/* ── BOOK card ── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" /> Book
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          {/* Two-step booking wizard */}
+          <BookingWizard onBook={handleBook} loading={loading} />
 
-              {/* Group size */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Group size</p>
-                <div className="grid grid-cols-7 gap-1">
-                  {[1,2,3,4,5,6,7].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setGroupSize(n)}
-                      className={`rounded py-1.5 text-xs font-semibold transition-colors ${
-                        groupSize === n
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/70'
-                      }`}
-                    >{n}</button>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Seat type */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Seat type</p>
-                <div className="flex flex-col gap-1.5">
-                  {[
-                    { val: 'NORMAL',     label: 'Regular',      icon: <Users className="w-3 h-3" /> },
-                    { val: 'VIP',        label: 'VIP',          icon: <Star className="w-3 h-3" /> },
-                    { val: 'DISABILITY', label: 'Accessibility', icon: <Accessibility className="w-3 h-3" /> },
-                  ].map(({ val, label, icon }) => (
-                    <button
-                      key={val}
-                      onClick={() => setBookType(val)}
-                      className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-                        bookType === val
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-secondary text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {icon} {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              <Button onClick={book} disabled={loading} className="w-full">
-                {loading ? 'Booking…' : `Book ${groupSize} ${groupSize === 1 ? 'seat' : 'seats'}`}
-              </Button>
-
-            </CardContent>
-          </Card>
-
-          {/* ── ADMIN card — only visible when panel is open ── */}
+          {/* Admin card — only when panel open */}
           {adminPanel && (
             <Card className="border-yellow-500/30 bg-yellow-500/5">
               <CardHeader className="pb-3">
@@ -244,8 +180,6 @@ export default function App() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-
-                {/* Admin override toggle */}
                 <div>
                   <p className="text-xs text-muted-foreground mb-2">Override rules</p>
                   <button
@@ -261,10 +195,7 @@ export default function App() {
                   </button>
                   {admin && <p className="text-[11px] text-yellow-500/70 mt-1.5 pl-1">All seating rules bypassed</p>}
                 </div>
-
                 <Separator className="border-yellow-500/20" />
-
-                {/* Session controls */}
                 <div>
                   <p className="text-xs text-muted-foreground mb-2">Session</p>
                   <div className="space-y-1.5">
@@ -276,12 +207,11 @@ export default function App() {
                     </Button>
                   </div>
                 </div>
-
               </CardContent>
             </Card>
           )}
 
-          {/* ── LEGEND card ── */}
+          {/* Legend */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Legend</CardTitle>
@@ -312,18 +242,14 @@ export default function App() {
           <div className="w-full text-center py-2 mb-5 rounded-lg text-[11px] font-bold tracking-[6px] text-blue-300 bg-gradient-to-r from-blue-950 via-blue-800 to-blue-950 border border-blue-700/40">
             SCREEN
           </div>
-
           <div className="flex gap-[3px] mb-1 pl-[22px]">
             {Array.from({ length: 28 }, (_, i) => (
               <div key={i} className="w-[18px] text-center text-[9px] text-muted-foreground/50">{i + 1}</div>
             ))}
           </div>
-
           {cinema.map((row, ri) => (
             <div key={ri} className="flex items-center gap-[3px] mb-[3px]">
-              <span className="w-[18px] text-[11px] text-muted-foreground font-semibold text-center shrink-0">
-                {ROWS[ri]}
-              </span>
+              <span className="w-[18px] text-[11px] text-muted-foreground font-semibold text-center shrink-0">{ROWS[ri]}</span>
               {row.map((seat, ci) => (
                 <div
                   key={ci}
@@ -331,12 +257,9 @@ export default function App() {
                   className={`seat w-[18px] h-[15px] rounded-[2px] shrink-0 ${getSeatStyle(seat, flash)}`}
                 />
               ))}
-              <span className="w-[18px] text-[11px] text-muted-foreground/40 text-center shrink-0">
-                {ROWS[ri]}
-              </span>
+              <span className="w-[18px] text-[11px] text-muted-foreground/40 text-center shrink-0">{ROWS[ri]}</span>
             </div>
           ))}
-
           <p className="text-[11px] text-purple-400/70 text-center mt-3">
             ★ VIP zone — rows E–I, columns 12–15
           </p>
