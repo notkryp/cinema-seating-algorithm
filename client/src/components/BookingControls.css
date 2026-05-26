@@ -1,0 +1,81 @@
+.controls {
+  background: #16213e;
+  border: 1px solid #2d5986;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.controls h3 {
+  color: #e0c97f;
+  margin-bottom: 14px;
+  font-size: 1rem;
+}
+
+.controls form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+
+.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: #e08060;
+}
+
+select {
+  background: #0f3460;
+  color: #eee;
+  border: 1px solid #2d5986;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+.btn-book {
+  background: #3a7bd5;
+  color: white;
+  padding: 9px;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  margin-top: 4px;
+  transition: background 0.2s;
+}
+
+.btn-book:hover { background: #2d5986; }
+
+.btn-stress {
+  background: #8e44ad;
+  color: white;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  width: 100%;
+  margin-top: 10px;
+  transition: background 0.2s;
+}
+
+.btn-stress:hover { background: #6c3483; }
+
+.btn-reset {
+  background: #c0392b;
+  color: white;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  width: 100%;
+  margin-top: 8px;
+  transition: background 0.2s;
+}
+
+.btn-reset:hover { background: #922b21; }

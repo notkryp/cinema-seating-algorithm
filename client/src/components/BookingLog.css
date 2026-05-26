@@ -1,0 +1,33 @@
+.booking-log {
+  background: #16213e;
+  border: 1px solid #2d5986;
+  border-radius: 8px;
+  padding: 14px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.booking-log h3 {
+  color: #e0c97f;
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+}
+
+.booking-log ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.booking-log li {
+  font-size: 0.75rem;
+  color: #999;
+  border-bottom: 1px solid #1a2a4a;
+  padding-bottom: 4px;
+}
+
+.booking-log li.newest {
+  color: #f1c40f;
+  font-weight: bold;
+}

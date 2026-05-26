@@ -1,0 +1,93 @@
+.cinema-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.screen {
+  background: linear-gradient(90deg, #2d5986, #3a7bd5, #2d5986);
+  color: white;
+  font-size: 0.9rem;
+  font-weight: bold;
+  letter-spacing: 4px;
+  padding: 6px 60px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  width: 90%;
+  text-align: center;
+}
+
+.grid-area {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.col-numbers {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.col-num {
+  width: 18px;
+  text-align: center;
+  font-size: 0.6rem;
+  color: #777;
+}
+
+.cinema-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.row-label {
+  width: 20px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #aaa;
+  font-weight: bold;
+}
+
+.row-label-right {
+  width: 20px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.seat {
+  width: 18px;
+  height: 16px;
+  border-radius: 3px 3px 1px 1px;
+  transition: transform 0.1s;
+  cursor: default;
+}
+
+.seat:hover {
+  transform: scale(1.3);
+  z-index: 10;
+  position: relative;
+}
+
+.seat.regular    { background: #3a7bd5; }
+.seat.vip        { background: #b565d0; }
+.seat.disability { background: #38c2b0; }
+.seat.booked     { background: #444; border: 1px solid #666; }
+.seat.broken     { background: #c0392b; }
+.seat.justbooked { background: #f1c40f; animation: flash 0.6s ease; }
+
+@keyframes flash {
+  0%   { transform: scale(1.4); }
+  50%  { transform: scale(1.6); }
+  100% { transform: scale(1.0); }
+}
+
+.vip-label {
+  font-size: 0.72rem;
+  color: #b565d0;
+  margin-top: 6px;
+}
