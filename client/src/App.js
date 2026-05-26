@@ -3,10 +3,9 @@ import { Button } from './components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { Separator } from './components/ui/separator';
-import { Film, RotateCcw, Zap, Users, Star, Accessibility, ShieldAlert } from 'lucide-react';
+import { Film, RotateCcw, Zap, Users, Star, Accessibility, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
 
 const API = 'http://localhost:3001/api';
-const ROW_LABELS = list => list;
 const ROWS = 'ABCDEFGHIJKLMNO'.split('');
 
 const SEAT_STYLES = {
@@ -29,13 +28,14 @@ function getSeatStyle(seat, flashSet) {
 }
 
 export default function App() {
-  const [cinema, setCinema]       = useState(null);
-  const [groupSize, setGroupSize] = useState(2);
-  const [bookType, setBookType]   = useState('NORMAL');
-  const [admin, setAdmin]         = useState(false);
-  const [flash, setFlash]         = useState(new Set());
-  const [toast, setToast]         = useState(null);
-  const [loading, setLoading]     = useState(false);
+  const [cinema, setCinema]         = useState(null);
+  const [groupSize, setGroupSize]   = useState(2);
+  const [bookType, setBookType]     = useState('NORMAL');
+  const [admin, setAdmin]           = useState(false);        // admin override (bypass rules)
+  const [adminPanel, setAdminPanel] = useState(false);        // show/hide admin section
+  const [flash, setFlash]           = useState(new Set());
+  const [toast, setToast]           = useState(null);
+  const [loading, setLoading]       = useState(false);
   const toastTimer = useRef(null);
 
   function showToast(msg, ok = true) {
@@ -132,7 +132,24 @@ export default function App() {
           <Film className="w-5 h-5 text-primary" />
           <span className="font-semibold tracking-tight">Cinema Seating</span>
         </div>
+
         <div className="flex items-center gap-3">
+          {/* ── Admin Controls toggle pill ── */}
+          <button
+            onClick={() => setAdminPanel(p => !p)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              adminPanel
+                ? 'bg-yellow-500/15 border-yellow-500/50 text-yellow-400'
+                : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            Admin controls
+            {adminPanel
+              ? <ChevronUp className="w-3 h-3" />
+              : <ChevronDown className="w-3 h-3" />}
+          </button>
+
           <span className="text-muted-foreground text-xs">{s.booked} / {s.total} booked</span>
           <div className="w-28 h-1.5 rounded-full bg-secondary overflow-hidden">
             <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${s.pct}%` }} />
@@ -156,11 +173,11 @@ export default function App() {
         {/* ── SIDEBAR ── */}
         <aside className="w-56 shrink-0 flex flex-col gap-4">
 
-          {/* Book card */}
+          {/* ── BOOK card ── */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" /> Book Seats
+                <Users className="w-4 h-4 text-primary" /> Book
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -190,9 +207,9 @@ export default function App() {
                 <p className="text-xs text-muted-foreground mb-2">Seat type</p>
                 <div className="flex flex-col gap-1.5">
                   {[
-                    { val: 'NORMAL',     label: 'Regular',     icon: <Users className="w-3 h-3" /> },
-                    { val: 'VIP',        label: 'VIP',         icon: <Star className="w-3 h-3" /> },
-                    { val: 'DISABILITY', label: 'Accessibility',icon: <Accessibility className="w-3 h-3" /> },
+                    { val: 'NORMAL',     label: 'Regular',      icon: <Users className="w-3 h-3" /> },
+                    { val: 'VIP',        label: 'VIP',          icon: <Star className="w-3 h-3" /> },
+                    { val: 'DISABILITY', label: 'Accessibility', icon: <Accessibility className="w-3 h-3" /> },
                   ].map(({ val, label, icon }) => (
                     <button
                       key={val}
@@ -211,20 +228,6 @@ export default function App() {
 
               <Separator />
 
-              {/* Admin toggle */}
-              <div>
-                <button
-                  onClick={() => setAdmin(a => !a)}
-                  className={`flex items-center gap-2 w-full rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-                    admin ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40' : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <ShieldAlert className="w-3 h-3" />
-                  Admin override {admin ? 'ON' : 'OFF'}
-                </button>
-                {admin && <p className="text-[11px] text-yellow-500/80 mt-1.5 pl-1">All rules bypassed</p>}
-              </div>
-
               <Button onClick={book} disabled={loading} className="w-full">
                 {loading ? 'Booking…' : `Book ${groupSize} ${groupSize === 1 ? 'seat' : 'seats'}`}
               </Button>
@@ -232,22 +235,53 @@ export default function App() {
             </CardContent>
           </Card>
 
-          {/* Session card */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Session</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button variant="secondary" className="w-full text-xs" onClick={stressTest}>
-                <Zap className="w-3 h-3 mr-1.5" /> Half-fill cinema
-              </Button>
-              <Button variant="outline" className="w-full text-xs" onClick={reset}>
-                <RotateCcw className="w-3 h-3 mr-1.5" /> Reset session
-              </Button>
-            </CardContent>
-          </Card>
+          {/* ── ADMIN card — only visible when panel is open ── */}
+          {adminPanel && (
+            <Card className="border-yellow-500/30 bg-yellow-500/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2 text-yellow-400">
+                  <ShieldAlert className="w-4 h-4" /> Admin
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
 
-          {/* Legend */}
+                {/* Admin override toggle */}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Override rules</p>
+                  <button
+                    onClick={() => setAdmin(a => !a)}
+                    className={`flex items-center gap-2 w-full rounded-md px-3 py-2 text-xs font-medium transition-colors border ${
+                      admin
+                        ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
+                        : 'bg-secondary text-muted-foreground border-border hover:text-foreground'
+                    }`}
+                  >
+                    <ShieldAlert className="w-3 h-3" />
+                    Override {admin ? 'ON' : 'OFF'}
+                  </button>
+                  {admin && <p className="text-[11px] text-yellow-500/70 mt-1.5 pl-1">All seating rules bypassed</p>}
+                </div>
+
+                <Separator className="border-yellow-500/20" />
+
+                {/* Session controls */}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Session</p>
+                  <div className="space-y-1.5">
+                    <Button variant="secondary" className="w-full text-xs" onClick={stressTest}>
+                      <Zap className="w-3 h-3 mr-1.5" /> Half-fill cinema
+                    </Button>
+                    <Button variant="outline" className="w-full text-xs" onClick={reset}>
+                      <RotateCcw className="w-3 h-3 mr-1.5" /> Reset session
+                    </Button>
+                  </div>
+                </div>
+
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── LEGEND card ── */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Legend</CardTitle>
@@ -255,12 +289,12 @@ export default function App() {
             <CardContent>
               <div className="grid grid-cols-2 gap-y-2 gap-x-3">
                 {[
-                  { color: 'bg-blue-600/70',    label: 'Free' },
-                  { color: 'bg-purple-600/80',  label: 'VIP' },
-                  { color: 'bg-teal-500/80',    label: 'Accessible' },
-                  { color: 'bg-zinc-700',        label: 'Booked' },
-                  { color: 'bg-red-900/60',      label: 'Broken' },
-                  { color: 'bg-yellow-400',      label: 'Just booked' },
+                  { color: 'bg-blue-600/70',   label: 'Free' },
+                  { color: 'bg-purple-600/80', label: 'VIP' },
+                  { color: 'bg-teal-500/80',   label: 'Accessible' },
+                  { color: 'bg-zinc-700',       label: 'Booked' },
+                  { color: 'bg-red-900/60',     label: 'Broken' },
+                  { color: 'bg-yellow-400',     label: 'Just booked' },
                 ].map(({ color, label }) => (
                   <div key={label} className="flex items-center gap-1.5">
                     <div className={`w-3 h-3 rounded-sm shrink-0 ${color}`} />
@@ -270,23 +304,21 @@ export default function App() {
               </div>
             </CardContent>
           </Card>
+
         </aside>
 
         {/* ── CINEMA GRID ── */}
         <main className="flex-1 overflow-x-auto">
-          {/* Screen */}
           <div className="w-full text-center py-2 mb-5 rounded-lg text-[11px] font-bold tracking-[6px] text-blue-300 bg-gradient-to-r from-blue-950 via-blue-800 to-blue-950 border border-blue-700/40">
             SCREEN
           </div>
 
-          {/* Column numbers */}
           <div className="flex gap-[3px] mb-1 pl-[22px]">
             {Array.from({ length: 28 }, (_, i) => (
               <div key={i} className="w-[18px] text-center text-[9px] text-muted-foreground/50">{i + 1}</div>
             ))}
           </div>
 
-          {/* Rows */}
           {cinema.map((row, ri) => (
             <div key={ri} className="flex items-center gap-[3px] mb-[3px]">
               <span className="w-[18px] text-[11px] text-muted-foreground font-semibold text-center shrink-0">
@@ -309,6 +341,7 @@ export default function App() {
             ★ VIP zone — rows E–I, columns 12–15
           </p>
         </main>
+
       </div>
     </div>
   );
