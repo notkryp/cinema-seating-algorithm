@@ -12,7 +12,6 @@
     "lucide-react": "^0.344.0",
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-separator": "^1.0.3",
-    "@radix-ui/react-badge": "^1.0.0",
     "@radix-ui/react-tooltip": "^1.0.7",
     "tailwindcss": "^3.4.1",
     "autoprefixer": "^10.4.17",
