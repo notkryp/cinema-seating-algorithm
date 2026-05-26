@@ -1,3 +1,44 @@
-/* global reset only - component styles live in App.css */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { -webkit-font-smoothing: antialiased; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 224 71.4% 4.1%;
+    --foreground: 210 20% 98%;
+    --card: 224 71.4% 4.1%;
+    --card-foreground: 210 20% 98%;
+    --border: 215 27.9% 16.9%;
+    --input: 215 27.9% 16.9%;
+    --primary: 210 100% 52%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 215 27.9% 16.9%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 215 27.9% 16.9%;
+    --muted-foreground: 217.9 10.6% 64.9%;
+    --accent: 215 27.9% 16.9%;
+    --accent-foreground: 210 20% 98%;
+    --ring: 210 100% 52%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+.seat {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.seat:hover {
+  transform: scale(1.4);
+  z-index: 10;
+  position: relative;
+}
+@keyframes flash {
+  0%   { transform: scale(1.6); box-shadow: 0 0 12px #facc15; }
+  60%  { transform: scale(1.2); }
+  100% { transform: scale(1.0); }
+}
+.seat-flash { animation: flash 0.5s ease forwards; }
