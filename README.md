@@ -1,7 +1,5 @@
 # Cinema Seating Algorithm
 
-This is my ATSE Assessment 3 project. I chose the cinema seating plan and built an algorithm that tries to stop single scattered seats from appearing when booking.
-
 ## What it does
 
 - Shows a cinema with 15 rows (A to O) and 28 seats per row
