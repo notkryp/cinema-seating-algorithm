@@ -11,26 +11,36 @@ const VIP_COL_START = 11;
 const VIP_COL_END   = 14;
 
 /**
- * Generate exactly 6 disability seats in rows A and B.
- * ALL 6 must be adjacent to each other (one continuous block).
- * The block start position is randomised every session.
+ * Generate exactly 6 disability seats as 3 pairs of 2 adjacent seats.
+ * Each pair is placed randomly in row A or B at a random column.
+ * Pairs are placed independently - they may or may not end up next to each other
+ * purely by chance of the randomiser. No constraint forces them apart or together.
  *
- * Strategy:
- *  - Pick a random row (A or B)
- *  - Pick a random start column so that cols [start .. start+5] all fit (cols 1-28)
- *  - Mark all 6 consecutive seats in that row as DISABILITY
- *
- * This guarantees: exactly 6 seats, all adjacent, rows A/B only, random each reset.
+ * Rules:
+ *  - Each pair = 2 horizontally adjacent seats (col N and col N+1)
+ *  - Each pair is in either row A or row B (random per pair)
+ *  - Start column is random: 1 to 27 (so col+1 stays within 28)
+ *  - No deliberate minimum gap between pairs - randomiser decides
  */
 function generateDisabilityPositions() {
-  const row = Math.random() < 0.5 ? 'A' : 'B';          // random row A or B
-  const maxStart = COLS - 6;                              // latest start so 6 fit (0-based: 0..22)
-  const startCol = Math.floor(Math.random() * (maxStart + 1)); // 0-based index
-
   const positions = new Set();
-  for (let i = 0; i < 6; i++) {
-    positions.add(`${row}-${startCol + i + 1}`); // store as "A-5" etc (1-based col)
+  const placedPairs = []; // track [{row, startCol}] to avoid exact duplicates only
+
+  let attempts = 0;
+  while (placedPairs.length < 3 && attempts < 200) {
+    attempts++;
+    const row = Math.random() < 0.5 ? 'A' : 'B';
+    const startCol = Math.floor(Math.random() * (COLS - 1)) + 1; // 1 to 27
+
+    // avoid placing an identical pair at the exact same spot
+    const duplicate = placedPairs.some(p => p.row === row && p.startCol === startCol);
+    if (duplicate) continue;
+
+    placedPairs.push({ row, startCol });
+    positions.add(`${row}-${startCol}`);
+    positions.add(`${row}-${startCol + 1}`);
   }
+
   return positions;
 }
 
@@ -77,7 +87,7 @@ function generateBrokenSeats(cinema) {
 }
 
 function createCinema() {
-  // Fresh disability positions every session
+  // Fresh disability positions every session - 3 random pairs across rows A and B
   const disabilitySet = generateDisabilityPositions();
 
   const cinema = [];
