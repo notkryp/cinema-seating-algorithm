@@ -14,12 +14,6 @@ const VIP_COL_END   = 14; // col 15 (0-indexed)
 // Gap counting helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Count single isolated FREE seats in a row slice [fromCol, toCol] (inclusive).
- * Within the slice, a seat is an isolated gap when both its neighbours inside the
- * slice are BOOKED/BROKEN (or it sits at the boundary of the slice next to a
- * BOOKED/BROKEN seat).
- */
 function countSingleGapsInRange(row, fromCol, toCol) {
   let count = 0;
   for (let i = fromCol; i <= toCol; i++) {
@@ -27,7 +21,7 @@ function countSingleGapsInRange(row, fromCol, toCol) {
     if (seat.status !== 'FREE' || seat.type === 'BROKEN') continue;
 
     const leftBlocked = i === fromCol
-      ? true  // treat zone boundary as a wall
+      ? true
       : (row[i - 1].status === 'BOOKED' || row[i - 1].status === 'BROKEN');
 
     const rightBlocked = i === toCol
@@ -39,16 +33,10 @@ function countSingleGapsInRange(row, fromCol, toCol) {
   return count;
 }
 
-/** Full-row gap count (used for regular seats). */
 function countSingleGaps(row) {
   return countSingleGapsInRange(row, 0, row.length - 1);
 }
 
-/**
- * Simulate placing `groupSize` seats starting at `startColIndex` inside a
- * specific column range [fromCol, toCol], return gap count within that range
- * and the block's distance from the range centre.
- */
 function simulateBlockInRange(row, startColIndex, groupSize, fromCol, toCol) {
   const rowCopy = row.map(s => ({ ...s }));
   for (let i = 0; i < groupSize; i++) rowCopy[startColIndex + i].status = 'BOOKED';
@@ -59,7 +47,6 @@ function simulateBlockInRange(row, startColIndex, groupSize, fromCol, toCol) {
   return { gapsAfter, centerDistance };
 }
 
-/** Full-row simulation (used for regular seats). */
 function simulateBlock(row, startColIndex, groupSize) {
   return simulateBlockInRange(row, startColIndex, groupSize, 0, row.length - 1);
 }
@@ -71,18 +58,36 @@ function getPreferredRowOrder() {
   return [...indices].sort((a, b) => Math.abs(a - center) - Math.abs(b - center));
 }
 
+/**
+ * Column scan order: middle-out.
+ * For a row of length N, returns col indices starting from the centre,
+ * alternating left and right — so recommendations land in the middle first.
+ */
+function getMiddleOutCols(rowLength) {
+  const cols = [];
+  const mid  = Math.floor(rowLength / 2);
+  cols.push(mid);
+  for (let offset = 1; offset <= mid; offset++) {
+    if (mid + offset < rowLength) cols.push(mid + offset);
+    if (mid - offset >= 0)        cols.push(mid - offset);
+  }
+  return cols;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // REGULAR booking: single seat
-// Must NOT land on VIP or DISABILITY seats.
-// Prefer seats that fill existing single gaps first.
+// Prefer filling existing single gaps; tie-break by distance from row centre.
+// Column scan is middle-out so recommendations land in centre seats first.
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateSolo(cinema) {
   const rowOrder = getPreferredRowOrder();
   let best = null;
 
   for (const r of rowOrder) {
-    const row = cinema[r];
-    for (let c = 0; c < row.length; c++) {
+    const row     = cinema[r];
+    const colOrder = getMiddleOutCols(row.length);
+
+    for (const c of colOrder) {
       const seat = row[c];
       if (
         seat.status !== 'FREE' ||
@@ -96,7 +101,6 @@ function allocateSolo(cinema) {
       const isExistingGap = leftBlocked && rightBlocked;
 
       const { gapsAfter, centerDistance } = simulateBlock(row, c, 1);
-      // Score: filling an existing gap = best (-1), otherwise penalise by gaps created
       const score = isExistingGap ? -1 : gapsAfter;
 
       if (
@@ -115,16 +119,18 @@ function allocateSolo(cinema) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REGULAR booking: group of 2+
-// Must NOT include VIP, DISABILITY or BROKEN seats.
 // Fewest new single gaps first; tie-break by distance from row centre.
+// Column scan is middle-out so groups land in centre first.
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateGroup(cinema, groupSize) {
   const rowOrder   = getPreferredRowOrder();
   const candidates = [];
 
   for (const r of rowOrder) {
-    const row = cinema[r];
-    for (let c = 0; c <= row.length - groupSize; c++) {
+    const row      = cinema[r];
+    const colOrder = getMiddleOutCols(row.length - groupSize + 1);
+
+    for (const c of colOrder) {
       let ok = true;
       for (let i = 0; i < groupSize; i++) {
         const seat = row[c + i];
@@ -156,10 +162,6 @@ function allocateGroup(cinema, groupSize) {
 // ─────────────────────────────────────────────────────────────────────────────
 // VIP booking
 // Rows E-I (index 4-8), columns 12-15 (index 11-14) only.
-//
-// KEY FIX: gaps are scored WITHIN the VIP zone (cols 12-15) only, so isolated
-// VIP seats created by previous bookings score as existing gaps and are always
-// preferred over opening a fresh seat in a full row.
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateVIP(cinema, groupSize) {
   const candidates = [];
@@ -168,7 +170,6 @@ function allocateVIP(cinema, groupSize) {
     const row = cinema[r];
 
     for (let c = VIP_COL_START; c <= VIP_COL_END - groupSize + 1; c++) {
-      // Every seat in the block must be a free VIP seat
       let ok = true;
       for (let i = 0; i < groupSize; i++) {
         const seat = row[c + i];
@@ -176,13 +177,10 @@ function allocateVIP(cinema, groupSize) {
       }
       if (!ok) continue;
 
-      // Score gaps WITHIN the VIP zone only
       const { gapsAfter, centerDistance } = simulateBlockInRange(
         row, c, groupSize, VIP_COL_START, VIP_COL_END
       );
 
-      // Detect whether this block starts at (or fills) an already-isolated gap
-      // inside the VIP zone — mirrors the solo regular logic.
       let isExistingGap = false;
       if (groupSize === 1) {
         const leftBlocked = c === VIP_COL_START
@@ -194,16 +192,13 @@ function allocateVIP(cinema, groupSize) {
         isExistingGap = leftBlocked && rightBlocked;
       }
 
-      // Score: filling an existing isolated gap = best priority (-1)
       const score = isExistingGap ? -1 : gapsAfter;
-
       candidates.push({ rowIndex: r, start: c, score, gapsAfter, centerDistance });
     }
   }
 
   if (candidates.length === 0) return null;
 
-  // Sort: existing gaps first (score -1), then fewest new gaps, then closest to zone centre
   candidates.sort((a, b) => {
     if (a.score      !== b.score)      return a.score      - b.score;
     if (a.gapsAfter  !== b.gapsAfter)  return a.gapsAfter  - b.gapsAfter;
@@ -214,8 +209,7 @@ function allocateVIP(cinema, groupSize) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DISABILITY booking
-// Rows A-B only, seat type must be DISABILITY.
+// DISABILITY booking — rows A-B only
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateDisability(cinema, groupSize) {
   const targetRows = [0, 1];
@@ -247,7 +241,7 @@ function allocateDisability(cinema, groupSize) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN OVERRIDE: place anywhere free (respects BROKEN only)
+// ADMIN OVERRIDE: place anywhere free
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateAdminOverride(cinema, groupSize) {
   const rowOrder = getPreferredRowOrder();
@@ -264,10 +258,6 @@ function allocateAdminOverride(cinema, groupSize) {
   return null;
 }
 
-/**
- * PREVIEW: find the best seats WITHOUT booking them.
- * Runs on a deep-clone — real cinema is never mutated.
- */
 function previewSeats(cinema, request) {
   const { groupSize, bookingType, adminOverride } = request;
   const gs    = parseInt(groupSize) || 1;
@@ -275,7 +265,6 @@ function previewSeats(cinema, request) {
   return allocateSeats(clone, { groupSize: gs, bookingType, adminOverride });
 }
 
-/** Mark seats as BOOKED and return copies. */
 function bookBlock(cinema, rowIndex, startColIndex, size) {
   const booked = [];
   for (let i = 0; i < size; i++) {
@@ -286,7 +275,6 @@ function bookBlock(cinema, rowIndex, startColIndex, size) {
   return booked;
 }
 
-/** Main entry — routes to the correct allocator. */
 function allocateSeats(cinema, request) {
   const { groupSize, bookingType, adminOverride } = request;
 

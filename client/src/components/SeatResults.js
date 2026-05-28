@@ -8,16 +8,10 @@ const ROWS = 'ABCDEFGHIJKLMNO'.split('');
 function getSeatBg(seat, bookedSet, manualSet, hoveredId, bookingType) {
   const id = `${seat.row}${seat.col}`;
 
-  // Algorithm recommendation
   if (bookedSet.has(id))  return 'bg-yellow-400 cursor-default';
-
-  // Manual selected
   if (manualSet.has(id))  return 'bg-orange-400 ring-2 ring-orange-300 scale-110 z-10 cursor-pointer';
-
-  // Hovered (and interactive)
   if (hoveredId === id)   return 'bg-yellow-200/70 ring-1 ring-yellow-300 scale-110 z-10 cursor-pointer';
 
-  // Non-interactive states
   if (seat.status === 'BROKEN') return 'bg-red-900/50 opacity-40 cursor-not-allowed';
   if (seat.status === 'BOOKED') return 'bg-zinc-700 cursor-not-allowed';
   if (seat.type   === 'VIP')    return 'bg-purple-600/80 cursor-pointer';
@@ -35,7 +29,7 @@ function isSeatClickable(seat, bookingType) {
 function AlertModal({ alert, onConfirm, onCancel }) {
   if (!alert) return null;
   const isWarn  = alert.type === 'TWO_GAP' || alert.type === 'OVERCOUNT';
-  const isError = alert.type === 'ONE_GAP' || alert.type === 'ZONE';
+  const isError = alert.type === 'ONE_GAP' || alert.type === 'ZONE' || alert.type === 'LIMIT';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -79,8 +73,8 @@ export default function SeatResults({
 }) {
   const [hovered,     setHovered]     = useState(null);
   const [scale,       setScale]       = useState(1);
-  const [manualSeats, setManualSeats] = useState([]);   // manually picked seat objects
-  const [alert,       setAlert]       = useState(null); // { type, message, pendingSeat? }
+  const [manualSeats, setManualSeats] = useState([]);
+  const [alert,       setAlert]       = useState(null);
   const [useManual,   setUseManual]   = useState(false);
 
   const bookedSet = useMemo(() =>
@@ -92,37 +86,37 @@ export default function SeatResults({
     [manualSeats]
   );
 
+  const groupSize = parseInt(params?.groupSize) || 1;
+
   // ── Handle seat click ───────────────────────────────────────────────────────
   const handleSeatClick = useCallback((seat) => {
     if (!isSeatClickable(seat, params?.bookingType)) return;
     const id = `${seat.row}${seat.col}`;
 
-    // Deselect if already manually picked
+    // Deselect if already picked
     if (manualSet.has(id)) {
       setManualSeats(prev => prev.filter(s => `${s.row}${s.col}` !== id));
       return;
     }
 
-    // Zone conflict check
+    // Zone conflict
     const zoneErr = checkSeatTypeConflict(seat, params?.bookingType);
     if (zoneErr) {
       setAlert({ type: 'ZONE', message: zoneErr });
       return;
     }
 
-    const newSelection = [...manualSeats, seat];
-    const newIds       = newSelection.map(s => `${s.row}${s.col}`);
-
-    // Over pax count check
-    if (params?.groupSize && newSelection.length > params.groupSize) {
+    // Hard cap — can't pick more seats than requested
+    if (manualSeats.length >= groupSize) {
       setAlert({
-        type: 'OVERCOUNT',
-        message: `You asked for ${params.groupSize} seat${params.groupSize > 1 ? 's' : ''} but you're picking ${newSelection.length}. Want to go with ${newSelection.length} instead, or keep it at ${params.groupSize}?`,
-        pendingSeat: seat,
-        pendingList: newSelection
+        type: 'LIMIT',
+        message: `You only requested ${groupSize} seat${groupSize > 1 ? 's' : ''}. Remove one of your current picks before adding another.`
       });
       return;
     }
+
+    const newSelection = [...manualSeats, seat];
+    const newIds       = newSelection.map(s => `${s.row}${s.col}`);
 
     // Gap validation
     const validation = validateManualSelection(cinema, newIds);
@@ -144,9 +138,8 @@ export default function SeatResults({
 
     setManualSeats(newSelection);
     setUseManual(true);
-  }, [manualSeats, manualSet, cinema, params]);
+  }, [manualSeats, manualSet, cinema, params, groupSize]);
 
-  // Alert modal callbacks
   function onAlertConfirm() {
     if (alert?.pendingList) {
       setManualSeats(alert.pendingList);
@@ -158,7 +151,6 @@ export default function SeatResults({
     setAlert(null);
   }
 
-  // ── Confirm handler ─────────────────────────────────────────────────────────
   function handleConfirm() {
     if (useManual && manualSeats.length > 0) {
       onConfirmManual(manualSeats);
@@ -167,14 +159,13 @@ export default function SeatResults({
     }
   }
 
-  const activeSeats   = useManual && manualSeats.length > 0 ? manualSeats : bookedSeats;
-  const confirmCount  = activeSeats.length;
+  const activeSeats  = useManual && manualSeats.length > 0 ? manualSeats : bookedSeats;
+  const confirmCount = activeSeats.length;
 
   return (
     <div className="flex flex-col h-full">
       <AlertModal alert={alert} onConfirm={onAlertConfirm} onCancel={onAlertCancel} />
 
-      {/* Back */}
       <button
         onClick={onBack}
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
@@ -191,7 +182,6 @@ export default function SeatResults({
         </p>
       </div>
 
-      {/* Zoom controls */}
       <div className="flex items-center justify-end gap-1 mb-3">
         <button onClick={() => setScale(s => Math.max(0.6, +(s - 0.1).toFixed(2)))} className="p-1 rounded bg-secondary hover:bg-secondary/80"><ZoomOut className="w-4 h-4" /></button>
         <span className="text-xs text-muted-foreground w-10 text-center">{Math.round(scale * 100)}%</span>
@@ -199,13 +189,11 @@ export default function SeatResults({
         <button onClick={() => setScale(1)} className="p-1 rounded bg-secondary hover:bg-secondary/80"><Maximize2 className="w-4 h-4" /></button>
       </div>
 
-      {/* Split panel */}
       <div className="flex gap-4 flex-1 min-h-0">
 
         {/* LEFT panel */}
         <div className="w-52 shrink-0 flex flex-col gap-4 overflow-y-auto pr-1">
 
-          {/* Recommended */}
           <div>
             <div className="flex items-center gap-1.5 mb-2">
               <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
@@ -242,10 +230,8 @@ export default function SeatResults({
             )}
           </div>
 
-          {/* Divider */}
           <div className="border-t border-border" />
 
-          {/* Selected */}
           <div>
             <div className="flex items-center gap-1.5 mb-2">
               <MousePointerClick className="w-3.5 h-3.5 text-orange-400" />
@@ -297,7 +283,6 @@ export default function SeatResults({
 
           <div className="flex justify-center">
             <div style={{ transform: `scale(${scale})`, transformOrigin: 'center top', display: 'inline-block' }}>
-              {/* Column numbers */}
               <div className="flex gap-[2px] mb-1 pl-[20px]">
                 {Array.from({ length: 28 }, (_, i) => (
                   <div key={i} style={{ width: 16 }} className="text-center text-[8px] text-muted-foreground/40">{i + 1}</div>
@@ -330,7 +315,6 @@ export default function SeatResults({
             </div>
           </div>
 
-          {/* Legend */}
           <div className="flex flex-wrap gap-3 mt-4">
             {[
               { color: 'bg-yellow-400',  label: 'Recommended' },
@@ -350,7 +334,6 @@ export default function SeatResults({
         </div>
       </div>
 
-      {/* Confirm bar */}
       <div className="pt-4 mt-4 border-t border-border">
         {useManual && manualSeats.length > 0 ? (
           <button
