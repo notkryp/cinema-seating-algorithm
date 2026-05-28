@@ -70,7 +70,7 @@ function getTrappedGaps(row) {
  * Given the current cinema grid and a proposed set of manual seat IDs,
  * simulate booking those seats and check for gap violations.
  *
- * Returns: { ok: true } or { ok: false, type: 'ONE_GAP'|'TWO_GAP', message, rows }
+ * Returns: { ok: true } or { ok: false, type: 'ONE_GAP'|'TWO_GAP', message, rows, isVipZone }
  */
 export function validateManualSelection(cinema, selectedIds) {
   if (!selectedIds || selectedIds.length === 0) return { ok: true };
@@ -98,20 +98,30 @@ export function validateManualSelection(cinema, selectedIds) {
   }
 
   if (oneGapRows.length > 0) {
+    const allVipRows = oneGapRows.every(r => {
+      const idx = 'ABCDEFGHIJKLMNO'.indexOf(r);
+      return idx >= VIP_ROW_START && idx <= VIP_ROW_END;
+    });
     return {
       ok: false,
       type: 'ONE_GAP',
       message: `That seat can't be booked — it would trap a single empty seat next to it that nobody can ever fill. Pick a different spot.`,
-      rows: oneGapRows
+      rows: oneGapRows,
+      isVipZone: allVipRows
     };
   }
 
   if (twoGapRows.length > 0) {
+    const allVipRows = twoGapRows.every(r => {
+      const idx = 'ABCDEFGHIJKLMNO'.indexOf(r);
+      return idx >= VIP_ROW_START && idx <= VIP_ROW_END;
+    });
     return {
       ok: false,
       type: 'TWO_GAP',
       message: `Just so you know, your pick leaves 2 seats squeezed between bookings. A couple could take them, but if not they'll go to waste. Still want these seats?`,
-      rows: twoGapRows
+      rows: twoGapRows,
+      isVipZone: allVipRows
     };
   }
 
