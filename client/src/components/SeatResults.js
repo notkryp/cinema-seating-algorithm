@@ -65,6 +65,19 @@ function AlertModal({ alert, onConfirm, onCancel }) {
   );
 }
 
+// ── Helper: gap rows are only in rows the user is actively building ────────────────
+// If every row that has a gap is a row the user already has a pick in (or is
+// the row they just clicked), the gap is temporary — they'll fill it with
+// their remaining picks. Used for both VIP and regular bookings.
+function gapsAreOnlyInActiveRows(validation, manualSeats, newSeat) {
+  if (!validation.rows || validation.rows.length === 0) return false;
+  const activeRows = new Set([
+    ...manualSeats.map(s => s.row),
+    newSeat.row,
+  ]);
+  return validation.rows.every(r => activeRows.has(r));
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function SeatResults({
   cinema, bookedSeats, movie, params,
@@ -121,22 +134,21 @@ export default function SeatResults({
     // Gap validation
     const validation = validateManualSelection(cinema, newIds);
     if (!validation.ok) {
-      const isVipFlow  = params?.bookingType === 'VIP' && isVIPSeat(seat);
-      const canAddMore = newSelection.length < groupSize;
+      // "In-progress" means: the user still has seats left to pick AND every
+      // row that has a gap is a row they are actively building in. The gap is
+      // therefore temporary — they will fill it with their next clicks.
+      // This applies equally to regular, VIP, and any other booking type.
+      const canAddMore   = newSelection.length < groupSize;
+      const isInProgress = canAddMore && gapsAreOnlyInActiveRows(validation, manualSeats, seat);
 
       if (validation.type === 'ONE_GAP') {
-        // VIP: allow temporary single-gap while still building up the block;
-        // final /book/manual still enforces the real rule.
-        if (!(isVipFlow && canAddMore && validation.isVipZone)) {
+        if (!isInProgress) {
           setAlert({ type: 'ONE_GAP', message: validation.message });
           return;
         }
-        // fall through: accept this pick without showing the error
+        // fall through: temporary gap — user still filling the block
       } else if (validation.type === 'TWO_GAP') {
-        // VIP: if the only gaps are inside VIP rows and the guest still has
-        // spare seats to assign, treat this like the ONE_GAP case above —
-        // they can use their remaining seats to fill the squeezed pair.
-        if (!(isVipFlow && canAddMore && validation.isVipZone)) {
+        if (!isInProgress) {
           setAlert({
             type: 'TWO_GAP',
             message: validation.message,
@@ -145,7 +157,7 @@ export default function SeatResults({
           });
           return;
         }
-        // fall through: accept silently for in-progress VIP blocks
+        // fall through: temporary gap — user still filling the block
       }
     }
 
