@@ -16,29 +16,61 @@ export function isVIPSeat(seat) {
 }
 
 /**
- * Scan a row (array of seat objects) and find all contiguous FREE blocks.
- * Returns an array of block lengths.
+ * Scan a row and return info about FREE blocks that are genuinely
+ * TRAPPED — i.e. bounded on BOTH sides by a BOOKED or BROKEN seat
+ * (not just the row edge).
+ *
+ * A gap touching the row edge is reachable and never wasted, so
+ * we do NOT count those as problematic.
+ *
+ * Returns { hasOneGap, hasTwoGap }
  */
-function getFreeBlockLengths(row) {
-  const blocks = [];
-  let cur = 0;
-  for (const s of row) {
-    if (s.status === 'FREE') {
-      cur++;
-    } else {
-      if (cur > 0) blocks.push(cur);
-      cur = 0;
+function getTrappedGaps(row) {
+  let hasOneGap = false;
+  let hasTwoGap = false;
+
+  const len = row.length;
+  let i = 0;
+
+  while (i < len) {
+    const seat = row[i];
+
+    // Not a free seat — skip
+    if (seat.status !== 'FREE' || seat.type === 'BROKEN') {
+      i++;
+      continue;
+    }
+
+    // Found the start of a FREE run — measure it
+    const start = i;
+    while (i < len && row[i].status === 'FREE' && row[i].type !== 'BROKEN') i++;
+    const end = i - 1; // inclusive
+    const blockSize = end - start + 1;
+
+    // Check what's on each side
+    const leftIsWall  = start === 0;
+    const rightIsWall = end === len - 1;
+
+    const leftIsBooked  = !leftIsWall  && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
+    const rightIsBooked = !rightIsWall && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
+
+    // Only flag if BOTH sides are blocked by bookings (truly trapped)
+    const trapped = leftIsBooked && rightIsBooked;
+
+    if (trapped) {
+      if (blockSize === 1) hasOneGap = true;
+      if (blockSize === 2) hasTwoGap = true;
     }
   }
-  if (cur > 0) blocks.push(cur);
-  return blocks;
+
+  return { hasOneGap, hasTwoGap };
 }
 
 /**
  * Given the current cinema grid and a proposed set of manual seat IDs,
  * simulate booking those seats and check for gap violations.
  *
- * Returns: { ok: true } or { ok: false, type: 'ONE_GAP'|'TWO_GAP', message, seats }
+ * Returns: { ok: true } or { ok: false, type: 'ONE_GAP'|'TWO_GAP', message, rows }
  */
 export function validateManualSelection(cinema, selectedIds) {
   if (!selectedIds || selectedIds.length === 0) return { ok: true };
@@ -56,13 +88,13 @@ export function validateManualSelection(cinema, selectedIds) {
     })
   );
 
-  let oneGapRows = [];
-  let twoGapRows = [];
+  const oneGapRows = [];
+  const twoGapRows = [];
 
   for (const row of simulated) {
-    const blocks = getFreeBlockLengths(row);
-    if (blocks.includes(1)) oneGapRows.push(row[0].row);
-    else if (blocks.includes(2)) twoGapRows.push(row[0].row);
+    const { hasOneGap, hasTwoGap } = getTrappedGaps(row);
+    if (hasOneGap) oneGapRows.push(row[0].row);
+    else if (hasTwoGap) twoGapRows.push(row[0].row);
   }
 
   if (oneGapRows.length > 0) {
