@@ -1,46 +1,32 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from './components/ui/card';
 import { Separator } from './components/ui/separator';
 import { Film, RotateCcw, Zap, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
 import BookingWizard from './components/BookingWizard';
+import SeatResults from './components/SeatResults';
 
 const API = 'http://localhost:3001/api';
 const ROWS = 'ABCDEFGHIJKLMNO'.split('');
-
-const SEAT_STYLES = {
-  FREE:       'bg-blue-600/70 hover:bg-blue-500',
-  VIP:        'bg-purple-600/80 hover:bg-purple-500',
-  DISABILITY: 'bg-teal-500/80 hover:bg-teal-400',
-  BOOKED:     'bg-zinc-700 cursor-default',
-  BROKEN:     'bg-red-900/60 cursor-not-allowed opacity-50',
-  FLASH:      'bg-yellow-400 seat-flash',
-};
-
-function getSeatStyle(seat, flashSet) {
-  const id = `${seat.row}${seat.col}`;
-  if (flashSet.has(id)) return SEAT_STYLES.FLASH;
-  if (seat.status === 'BROKEN') return SEAT_STYLES.BROKEN;
-  if (seat.status === 'BOOKED') return SEAT_STYLES.BOOKED;
-  if (seat.type === 'VIP') return SEAT_STYLES.VIP;
-  if (seat.type === 'DISABILITY') return SEAT_STYLES.DISABILITY;
-  return SEAT_STYLES.FREE;
-}
 
 export default function App() {
   const [cinema, setCinema]         = useState(null);
   const [admin, setAdmin]           = useState(false);
   const [adminPanel, setAdminPanel] = useState(false);
-  const [flash, setFlash]           = useState(new Set());
   const [toast, setToast]           = useState(null);
-  const [loading, setLoading]       = useState(false);
+  const [screen, setScreen]         = useState('wizard');  // 'wizard' | 'results'
+  const [pendingSeats, setPendingSeats] = useState([]);
+  const [lastParams, setLastParams]     = useState(null);
+  const [lastMovie, setLastMovie]       = useState(null);
+  const [confirming, setConfirming]     = useState(false);
+  const [loading, setLoading]           = useState(false);
   const toastTimer = useRef(null);
 
   function showToast(msg, ok = true) {
     clearTimeout(toastTimer.current);
     setToast({ msg, ok });
-    toastTimer.current = setTimeout(() => setToast(null), 3500);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
   }
 
   function stats(c) {
@@ -67,26 +53,67 @@ export default function App() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Called by BookingWizard with { groupSize, bookingType }
-  async function handleBook({ groupSize, bookingType }) {
+  // Step 2 → Step 3: preview seats without committing
+  async function handleFindSeats(params, movie) {
     setLoading(true);
+    setLastParams(params);
+    setLastMovie(movie);
+    try {
+      const r = await fetch(`${API}/book/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, adminOverride: admin }),
+      });
+      if (!r.ok) {
+        // fallback: use /book and treat as preview
+        const r2 = await fetch(`${API}/book`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...params, adminOverride: admin }),
+        });
+        const d2 = await r2.json();
+        if (!r2.ok) { showToast(d2.error || 'No seats available', false); return; }
+        setCinema(d2.cinema);
+        setPendingSeats(d2.booked);
+        setScreen('results');
+        return;
+      }
+      const d = await r.json();
+      if (d.seats) setPendingSeats(d.seats);
+      setScreen('results');
+    } catch {
+      showToast('Search failed', false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Step 3 → confirm
+  async function handleConfirm() {
+    if (!lastParams) return;
+    // if already booked via fallback, just go back to wizard
+    if (pendingSeats.length && cinema) {
+      setScreen('wizard');
+      showToast(`✓ Booked: ${pendingSeats.map(s => `${s.row}${s.col}`).join('  ')}`);
+      return;
+    }
+    setConfirming(true);
     try {
       const r = await fetch(`${API}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupSize, bookingType, adminOverride: admin }),
+        body: JSON.stringify({ ...lastParams, adminOverride: admin }),
       });
       const d = await r.json();
       if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
       setCinema(d.cinema);
-      const ids = new Set(d.booked.map(s => `${s.row}${s.col}`));
-      setFlash(ids);
-      setTimeout(() => setFlash(new Set()), 1800);
-      showToast(`✓ Booked ${groupSize} ${bookingType} seat${groupSize > 1 ? 's' : ''}: ${[...ids].join('  ')}`);
+      setPendingSeats(d.booked);
+      showToast(`✓ Booked: ${d.booked.map(s => `${s.row}${s.col}`).join('  ')}`);
+      setScreen('wizard');
     } catch {
       showToast('Booking failed', false);
     } finally {
-      setLoading(false);
+      setConfirming(false);
     }
   }
 
@@ -95,7 +122,8 @@ export default function App() {
       const r = await fetch(`${API}/cinema/reset`, { method: 'POST' });
       const d = await r.json();
       setCinema(d.cinema);
-      setFlash(new Set());
+      setPendingSeats([]);
+      setScreen('wizard');
       showToast('New session started');
     } catch { showToast('Reset failed', false); }
   }
@@ -111,7 +139,7 @@ export default function App() {
       }).catch(() => {});
     }
     await load();
-    showToast('Cinema half-filled — stress test done!');
+    showToast('Cinema half-filled!');
   }
 
   const s = stats(cinema);
@@ -126,7 +154,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background">
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Film className="w-5 h-5 text-primary" />
@@ -154,118 +182,58 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── TOAST ── */}
+      {/* TOAST */}
       {toast && (
-        <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg animate-in fade-in slide-in-from-top-2 ${
+        <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg ${
           toast.ok ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
         }`}>
           {toast.msg}
         </div>
       )}
 
-      <div className="flex gap-5 p-5 items-start">
+      {/* Admin dropdown */}
+      {adminPanel && (
+        <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-6 py-3 flex items-center gap-6">
+          <button
+            onClick={() => setAdmin(a => !a)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              admin
+                ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
+                : 'bg-secondary text-muted-foreground border-border hover:text-foreground'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            Override {admin ? 'ON' : 'OFF'}
+          </button>
+          <Button variant="secondary" size="sm" onClick={stressTest}>
+            <Zap className="w-3.5 h-3.5 mr-1.5" /> Half-fill cinema
+          </Button>
+          <Button variant="outline" size="sm" onClick={reset}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reset session
+          </Button>
+        </div>
+      )}
 
-        {/* ── SIDEBAR ── */}
-        <aside className="w-60 shrink-0 flex flex-col gap-4">
-
-          {/* Two-step booking wizard */}
-          <BookingWizard onBook={handleBook} loading={loading} />
-
-          {/* Admin card — only when panel open */}
-          {adminPanel && (
-            <Card className="border-yellow-500/30 bg-yellow-500/5">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2 text-yellow-400">
-                  <ShieldAlert className="w-4 h-4" /> Admin
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">Override rules</p>
-                  <button
-                    onClick={() => setAdmin(a => !a)}
-                    className={`flex items-center gap-2 w-full rounded-md px-3 py-2 text-xs font-medium transition-colors border ${
-                      admin
-                        ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
-                        : 'bg-secondary text-muted-foreground border-border hover:text-foreground'
-                    }`}
-                  >
-                    <ShieldAlert className="w-3 h-3" />
-                    Override {admin ? 'ON' : 'OFF'}
-                  </button>
-                  {admin && <p className="text-[11px] text-yellow-500/70 mt-1.5 pl-1">All seating rules bypassed</p>}
-                </div>
-                <Separator className="border-yellow-500/20" />
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">Session</p>
-                  <div className="space-y-1.5">
-                    <Button variant="secondary" className="w-full text-xs" onClick={stressTest}>
-                      <Zap className="w-3 h-3 mr-1.5" /> Half-fill cinema
-                    </Button>
-                    <Button variant="outline" className="w-full text-xs" onClick={reset}>
-                      <RotateCcw className="w-3 h-3 mr-1.5" /> Reset session
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Legend */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Legend</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-y-2 gap-x-3">
-                {[
-                  { color: 'bg-blue-600/70',   label: 'Free' },
-                  { color: 'bg-purple-600/80', label: 'VIP' },
-                  { color: 'bg-teal-500/80',   label: 'Accessible' },
-                  { color: 'bg-zinc-700',       label: 'Booked' },
-                  { color: 'bg-red-900/60',     label: 'Broken' },
-                  { color: 'bg-yellow-400',     label: 'Just booked' },
-                ].map(({ color, label }) => (
-                  <div key={label} className="flex items-center gap-1.5">
-                    <div className={`w-3 h-3 rounded-sm shrink-0 ${color}`} />
-                    <span className="text-[11px] text-muted-foreground">{label}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-        </aside>
-
-        {/* ── CINEMA GRID ── */}
-        <main className="flex-1 overflow-x-auto">
-          <div className="w-full text-center py-2 mb-5 rounded-lg text-[11px] font-bold tracking-[6px] text-blue-300 bg-gradient-to-r from-blue-950 via-blue-800 to-blue-950 border border-blue-700/40">
-            SCREEN
-          </div>
-          <div className="flex gap-[3px] mb-1 pl-[22px]">
-            {Array.from({ length: 28 }, (_, i) => (
-              <div key={i} className="w-[18px] text-center text-[9px] text-muted-foreground/50">{i + 1}</div>
-            ))}
-          </div>
-          {cinema.map((row, ri) => (
-            <div key={ri} className="flex items-center gap-[3px] mb-[3px]">
-              <span className="w-[18px] text-[11px] text-muted-foreground font-semibold text-center shrink-0">{ROWS[ri]}</span>
-              {row.map((seat, ci) => (
-                <div
-                  key={ci}
-                  title={`${seat.row}${seat.col} · ${seat.type} · ${seat.status}`}
-                  className={`seat w-[18px] h-[15px] rounded-[2px] shrink-0 ${getSeatStyle(seat, flash)}`}
-                />
-              ))}
-              <span className="w-[18px] text-[11px] text-muted-foreground/40 text-center shrink-0">{ROWS[ri]}</span>
-            </div>
-          ))}
-          <p className="text-[11px] text-purple-400/70 text-center mt-3">
-            ★ VIP zone — rows E–I, columns 12–15
-          </p>
-        </main>
-
+      {/* MAIN */}
+      <div className="p-6">
+        {screen === 'wizard' ? (
+          <BookingWizard
+            onFindSeats={(params, movie) => handleFindSeats(params, movie)}
+            loading={loading}
+          />
+        ) : (
+          <SeatResults
+            cinema={cinema}
+            bookedSeats={pendingSeats}
+            movie={lastMovie}
+            params={lastParams}
+            onConfirm={handleConfirm}
+            onBack={() => setScreen('wizard')}
+            confirming={confirming}
+          />
+        )}
       </div>
+
     </div>
   );
 }
