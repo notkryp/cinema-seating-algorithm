@@ -67,12 +67,12 @@ export default function BookingWizard({ onFindSeats, loading }) {
   // ─── SCREEN 1: Movie selection ───────────────────────────────────────────
   if (step === 1) {
     return (
-      <div className="w-full">
+      <div className="w-full max-w-4xl mx-auto">
         <div className="mb-5">
           <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Step 1 of 2</p>
           <h2 className="text-lg font-semibold">Select a movie</h2>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {MOVIES.map(m => (
             <button
               key={m.id}
@@ -107,7 +107,7 @@ export default function BookingWizard({ onFindSeats, loading }) {
   const canFind  = groupSelected ? pax >= 2 : true;
 
   return (
-    <div className="w-full max-w-sm">
+    <div className="w-full max-w-sm mx-auto">
       {/* Back + breadcrumb */}
       <button
         onClick={() => setStep(1)}

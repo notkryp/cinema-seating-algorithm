@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ChevronLeft, MapPin } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { ChevronLeft, MapPin, ZoomIn, ZoomOut, Maximize2, List } from 'lucide-react';
 
 const ROWS = 'ABCDEFGHIJKLMNO'.split('');
 
@@ -24,6 +24,10 @@ function getSeatBg(seat, highlightSet, bookedSet) {
 
 export default function SeatResults({ cinema, bookedSeats, movie, params, onConfirm, onBack, confirming }) {
   const [hovered, setHovered] = useState(null); // seat id like 'A3'
+  const [scale, setScale] = useState(1);
+  const [showList, setShowList] = useState(true);
+
+  const seatSize = useMemo(() => ({ w: 16, h: 13 }), []);
 
   const bookedSet    = new Set(bookedSeats.map(s => `${s.row}${s.col}`));
   // When hovering a list item, highlight that group's seat — find which group it belongs to
@@ -32,6 +36,35 @@ export default function SeatResults({ cinema, bookedSeats, movie, params, onConf
 
   return (
     <div className="flex flex-col h-full">
+      {/* Controls: zoom + list toggle */}
+      <div className="flex items-center justify-end gap-2 mb-3">
+        <button
+          title="Toggle seat list"
+          onClick={() => setShowList(s => !s)}
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-secondary border-border hover:bg-secondary/80"
+        >
+          <List className="w-4 h-4" />
+          {showList ? 'Hide list' : 'Show list'}
+        </button>
+        <div className="flex items-center gap-1">
+          <button
+            title="Zoom out"
+            onClick={() => setScale(s => Math.max(0.6, +(s - 0.1).toFixed(2)))}
+            className="p-1 rounded bg-secondary border-border hover:bg-secondary/80"
+          ><ZoomOut className="w-4 h-4" /></button>
+          <div className="text-xs text-muted-foreground w-10 text-center">{Math.round(scale * 100)}%</div>
+          <button
+            title="Zoom in"
+            onClick={() => setScale(s => Math.min(1.6, +(s + 0.1).toFixed(2)))}
+            className="p-1 rounded bg-secondary border-border hover:bg-secondary/80"
+          ><ZoomIn className="w-4 h-4" /></button>
+          <button
+            title="Fit to screen"
+            onClick={() => setScale(1)}
+            className="p-1 rounded bg-secondary border-border hover:bg-secondary/80"
+          ><Maximize2 className="w-4 h-4" /></button>
+        </div>
+      </div>
       {/* Back button */}
       <button
         onClick={onBack}
@@ -53,7 +86,8 @@ export default function SeatResults({ cinema, bookedSeats, movie, params, onConf
       <div className="flex gap-4 flex-1 min-h-0">
 
         {/* LEFT — seat list */}
-        <div className="w-48 shrink-0 flex flex-col gap-1 overflow-y-auto pr-1">
+        {showList && (
+          <div className="w-48 shrink-0 flex flex-col gap-1 overflow-y-auto pr-1">
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">Seat list</p>
           {bookedSeats.map(seat => {
             const id = `${seat.row}${seat.col}`;
@@ -78,6 +112,7 @@ export default function SeatResults({ cinema, bookedSeats, movie, params, onConf
             );
           })}
         </div>
+        )}
 
         {/* RIGHT — cinema grid */}
         <div className="flex-1 overflow-auto">
@@ -86,37 +121,42 @@ export default function SeatResults({ cinema, bookedSeats, movie, params, onConf
             SCREEN
           </div>
 
-          {/* Column numbers */}
-          <div className="flex gap-[2px] mb-1 pl-[20px]">
-            {Array.from({ length: 28 }, (_, i) => (
-              <div key={i} className="w-[16px] text-center text-[8px] text-muted-foreground/40">{i + 1}</div>
-            ))}
-          </div>
-
-          {cinema.map((row, ri) => (
-            <div key={ri} className="flex items-center gap-[2px] mb-[2px]">
-              <span className="w-[16px] text-[10px] text-muted-foreground font-semibold text-center shrink-0">
-                {ROWS[ri]}
-              </span>
-              {row.map((seat) => {
-                const id = `${seat.row}${seat.col}`;
-                const isHighlighted = highlightSet.has(id);
-                const isBooked      = bookedSet.has(id);
-                return (
-                  <div
-                    key={id}
-                    title={id}
-                    className={`relative w-[16px] h-[13px] rounded-[2px] shrink-0 transition-all duration-150 ${
-                      getSeatBg(seat, highlightSet, bookedSet)
-                    }`}
-                  />
-                );
-              })}
-              <span className="w-[16px] text-[10px] text-muted-foreground/30 text-center shrink-0">
-                {ROWS[ri]}
-              </span>
+          <div className="flex justify-center">
+            <div style={{ transform: `scale(${scale})`, transformOrigin: 'center top', display: 'inline-block' }}>
+            {/* Column numbers */}
+            <div className="flex gap-[2px] mb-1 pl-[20px]">
+              {Array.from({ length: 28 }, (_, i) => (
+                <div key={i} style={{ width: seatSize.w }} className="text-center text-[8px] text-muted-foreground/40">{i + 1}</div>
+              ))}
             </div>
-          ))}
+
+            {cinema.map((row, ri) => (
+              <div key={ri} className="flex items-center gap-[2px] mb-[2px]">
+                <span style={{ width: seatSize.w }} className="text-[10px] text-muted-foreground font-semibold text-center shrink-0">
+                  {ROWS[ri]}
+                </span>
+                {row.map((seat) => {
+                  const id = `${seat.row}${seat.col}`;
+                  const isHighlighted = highlightSet.has(id);
+                  const isBooked      = bookedSet.has(id);
+                  return (
+                    <div
+                      key={id}
+                      title={id}
+                      style={{ width: seatSize.w, height: seatSize.h }}
+                      className={`relative rounded-[2px] shrink-0 transition-all duration-150 ${
+                        getSeatBg(seat, highlightSet, bookedSet)
+                      }`}
+                    />
+                  );
+                })}
+                <span style={{ width: seatSize.w }} className="text-[10px] text-muted-foreground/30 text-center shrink-0">
+                  {ROWS[ri]}
+                </span>
+              </div>
+            ))}
+            </div>
+          </div>
 
           {/* Legend */}
           <div className="flex flex-wrap gap-3 mt-4">
