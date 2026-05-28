@@ -122,10 +122,20 @@ export default function SeatResults({
     const validation = validateManualSelection(cinema, newIds);
     if (!validation.ok) {
       if (validation.type === 'ONE_GAP') {
-        setAlert({ type: 'ONE_GAP', message: validation.message });
-        return;
-      }
-      if (validation.type === 'TWO_GAP') {
+        // Special case: VIP bookings building up a contiguous block.
+        // If the user is on a VIP booking, clicking inside the VIP zone,
+        // and they still have spare seats left in their group size, allow
+        // this temporary one-gap — they'll be able to fill it with their
+        // next click. The final /book/manual call will still reject any
+        // truly trapped single seat.
+        const isVipFlow     = params?.bookingType === 'VIP' && isVIPSeat(seat);
+        const canAddMore    = newSelection.length < groupSize;
+        if (!(isVipFlow && canAddMore)) {
+          setAlert({ type: 'ONE_GAP', message: validation.message });
+          return;
+        }
+        // fall through: accept this pick without showing the error
+      } else if (validation.type === 'TWO_GAP') {
         setAlert({
           type: 'TWO_GAP',
           message: validation.message,
