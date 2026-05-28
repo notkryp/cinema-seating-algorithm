@@ -121,28 +121,31 @@ export default function SeatResults({
     // Gap validation
     const validation = validateManualSelection(cinema, newIds);
     if (!validation.ok) {
+      const isVipFlow  = params?.bookingType === 'VIP' && isVIPSeat(seat);
+      const canAddMore = newSelection.length < groupSize;
+
       if (validation.type === 'ONE_GAP') {
-        // Special case: VIP bookings building up a contiguous block.
-        // If the user is on a VIP booking, clicking inside the VIP zone,
-        // and they still have spare seats left in their group size, allow
-        // this temporary one-gap — they'll be able to fill it with their
-        // next click. The final /book/manual call will still reject any
-        // truly trapped single seat.
-        const isVipFlow     = params?.bookingType === 'VIP' && isVIPSeat(seat);
-        const canAddMore    = newSelection.length < groupSize;
-        if (!(isVipFlow && canAddMore)) {
+        // VIP: allow temporary single-gap while still building up the block;
+        // final /book/manual still enforces the real rule.
+        if (!(isVipFlow && canAddMore && validation.isVipZone)) {
           setAlert({ type: 'ONE_GAP', message: validation.message });
           return;
         }
         // fall through: accept this pick without showing the error
       } else if (validation.type === 'TWO_GAP') {
-        setAlert({
-          type: 'TWO_GAP',
-          message: validation.message,
-          pendingSeat: seat,
-          pendingList: newSelection
-        });
-        return;
+        // VIP: if the only gaps are inside VIP rows and the guest still has
+        // spare seats to assign, treat this like the ONE_GAP case above —
+        // they can use their remaining seats to fill the squeezed pair.
+        if (!(isVipFlow && canAddMore && validation.isVipZone)) {
+          setAlert({
+            type: 'TWO_GAP',
+            message: validation.message,
+            pendingSeat: seat,
+            pendingList: newSelection
+          });
+          return;
+        }
+        // fall through: accept silently for in-progress VIP blocks
       }
     }
 
