@@ -1,26 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Badge } from './components/ui/badge';
-import { Button } from './components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from './components/ui/card';
-import { Separator } from './components/ui/separator';
+import { Badge }      from './components/ui/badge';
+import { Button }     from './components/ui/button';
 import { Film, RotateCcw, Zap, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
 import BookingWizard from './components/BookingWizard';
-import SeatResults from './components/SeatResults';
+import SeatResults   from './components/SeatResults';
 
 const API = 'http://localhost:3001/api';
-const ROWS = 'ABCDEFGHIJKLMNO'.split('');
 
 export default function App() {
-  const [cinema, setCinema]         = useState(null);
-  const [admin, setAdmin]           = useState(false);
-  const [adminPanel, setAdminPanel] = useState(false);
-  const [toast, setToast]           = useState(null);
-  const [screen, setScreen]         = useState('wizard');  // 'wizard' | 'results'
+  const [cinema, setCinema]           = useState(null);
+  const [admin, setAdmin]             = useState(false);
+  const [adminPanel, setAdminPanel]   = useState(false);
+  const [toast, setToast]             = useState(null);
+  const [screen, setScreen]           = useState('wizard'); // 'wizard' | 'results'
   const [pendingSeats, setPendingSeats] = useState([]);
-  const [lastParams, setLastParams]     = useState(null);
-  const [lastMovie, setLastMovie]       = useState(null);
-  const [confirming, setConfirming]     = useState(false);
-  const [loading, setLoading]           = useState(false);
+  const [lastParams, setLastParams]   = useState(null);
+  const [lastMovie, setLastMovie]     = useState(null);
+  const [confirming, setConfirming]   = useState(false);
+  const [loading, setLoading]         = useState(false);
   const toastTimer = useRef(null);
 
   function showToast(msg, ok = true) {
@@ -53,33 +50,25 @@ export default function App() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Step 2 → Step 3: preview seats without committing
+  // ── Screen 2 → Screen 3: PREVIEW (no commit) ─────────────────────────────
   async function handleFindSeats(params, movie) {
     setLoading(true);
     setLastParams(params);
     setLastMovie(movie);
     try {
       const r = await fetch(`${API}/book/preview`, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...params, adminOverride: admin }),
+        body:    JSON.stringify({ ...params, adminOverride: admin }),
       });
+      const d = await r.json();
       if (!r.ok) {
-        // fallback: use /book and treat as preview
-        const r2 = await fetch(`${API}/book`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...params, adminOverride: admin }),
-        });
-        const d2 = await r2.json();
-        if (!r2.ok) { showToast(d2.error || 'No seats available', false); return; }
-        setCinema(d2.cinema);
-        setPendingSeats(d2.booked);
-        setScreen('results');
+        showToast(d.error || 'No seats available', false);
         return;
       }
-      const d = await r.json();
-      if (d.seats) setPendingSeats(d.seats);
+      // d.seats = preview seats, d.cinema = unchanged cinema
+      setPendingSeats(d.seats);
+      setCinema(d.cinema);   // refresh grid so it's up to date
       setScreen('results');
     } catch {
       showToast('Search failed', false);
@@ -88,28 +77,22 @@ export default function App() {
     }
   }
 
-  // Step 3 → confirm
+  // ── Screen 3 confirm → COMMIT ─────────────────────────────────────────────
   async function handleConfirm() {
     if (!lastParams) return;
-    // if already booked via fallback, just go back to wizard
-    if (pendingSeats.length && cinema) {
-      setScreen('wizard');
-      showToast(`✓ Booked: ${pendingSeats.map(s => `${s.row}${s.col}`).join('  ')}`);
-      return;
-    }
     setConfirming(true);
     try {
       const r = await fetch(`${API}/book`, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...lastParams, adminOverride: admin }),
+        body:    JSON.stringify({ ...lastParams, adminOverride: admin }),
       });
       const d = await r.json();
       if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
       setCinema(d.cinema);
-      setPendingSeats(d.booked);
       showToast(`✓ Booked: ${d.booked.map(s => `${s.row}${s.col}`).join('  ')}`);
       setScreen('wizard');
+      setPendingSeats([]);
     } catch {
       showToast('Booking failed', false);
     } finally {
@@ -133,9 +116,9 @@ export default function App() {
     const groups = [3,2,4,2,5,1,3,2,6,2,4,1,2,3,2,4,3,1,2,5,3,2,4,2,3,1,5,2,3,4];
     for (const size of groups) {
       await fetch(`${API}/book`, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupSize: size, bookingType: size > 3 ? 'VIP' : 'NORMAL', adminOverride: false }),
+        body:    JSON.stringify({ groupSize: size, bookingType: size > 3 ? 'VIP' : 'NORMAL', adminOverride: false }),
       }).catch(() => {});
     }
     await load();
@@ -170,11 +153,11 @@ export default function App() {
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5" />
-            Admin controls
-            {adminPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            Admin
+            {adminPanel ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
           </button>
-          <span className="text-muted-foreground text-xs">{s.booked} / {s.total} booked</span>
-          <div className="w-28 h-1.5 rounded-full bg-secondary overflow-hidden">
+          <span className="text-muted-foreground text-xs">{s.booked}/{s.total}</span>
+          <div className="w-24 h-1.5 rounded-full bg-secondary overflow-hidden">
             <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${s.pct}%` }} />
           </div>
           <Badge variant="secondary">{s.pct}%</Badge>
@@ -182,7 +165,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* TOAST */}
+      {/* Toast */}
       {toast && (
         <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg ${
           toast.ok ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
@@ -191,9 +174,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Admin dropdown */}
+      {/* Admin bar */}
       {adminPanel && (
-        <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-6 py-3 flex items-center gap-6">
+        <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-6 py-3 flex items-center gap-4">
           <button
             onClick={() => setAdmin(a => !a)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
@@ -206,7 +189,7 @@ export default function App() {
             Override {admin ? 'ON' : 'OFF'}
           </button>
           <Button variant="secondary" size="sm" onClick={stressTest}>
-            <Zap className="w-3.5 h-3.5 mr-1.5" /> Half-fill cinema
+            <Zap className="w-3.5 h-3.5 mr-1.5" /> Half-fill
           </Button>
           <Button variant="outline" size="sm" onClick={reset}>
             <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reset session
@@ -214,26 +197,21 @@ export default function App() {
         </div>
       )}
 
-      {/* MAIN */}
+      {/* Main content */}
       <div className="p-6">
-        {screen === 'wizard' ? (
-          <BookingWizard
-            onFindSeats={(params, movie) => handleFindSeats(params, movie)}
-            loading={loading}
-          />
-        ) : (
-          <SeatResults
-            cinema={cinema}
-            bookedSeats={pendingSeats}
-            movie={lastMovie}
-            params={lastParams}
-            onConfirm={handleConfirm}
-            onBack={() => setScreen('wizard')}
-            confirming={confirming}
-          />
-        )}
+        {screen === 'wizard'
+          ? <BookingWizard onFindSeats={handleFindSeats} loading={loading} />
+          : <SeatResults
+              cinema={cinema}
+              bookedSeats={pendingSeats}
+              movie={lastMovie}
+              params={lastParams}
+              onConfirm={handleConfirm}
+              onBack={() => { setScreen('wizard'); setPendingSeats([]); }}
+              confirming={confirming}
+            />
+        }
       </div>
-
     </div>
   );
 }
