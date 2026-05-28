@@ -76,15 +76,24 @@ function getMiddleOutCols(rowLength) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REGULAR booking: single seat
-// Prefer filling existing single gaps; tie-break by distance from row centre.
-// Column scan is middle-out so recommendations land in centre seats first.
+//
+// Priority order (most important first):
+//   1. Fewest new single gaps created (gapsAfter)
+//   2. Whether this seat is already a trapped gap (isExistingGap) — tiebreaker
+//      within seats that produce the same number of new gaps
+//   3. Distance from the row centre (pick the most central option)
+//   4. Row preference (middle rows ranked first by getPreferredRowOrder)
+//
+// This means: a centre seat in a good row that creates 0 new gaps always beats
+// a gap-fill seat in a fringe row. Gap-filling only wins when the new-gap count
+// is the same — i.e., it breaks ties, it doesn't override row quality.
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateSolo(cinema) {
   const rowOrder = getPreferredRowOrder();
-  let best = null;
+  const candidates = [];
 
   for (const r of rowOrder) {
-    const row     = cinema[r];
+    const row      = cinema[r];
     const colOrder = getMiddleOutCols(row.length);
 
     for (const c of colOrder) {
@@ -101,19 +110,25 @@ function allocateSolo(cinema) {
       const isExistingGap = leftBlocked && rightBlocked;
 
       const { gapsAfter, centerDistance } = simulateBlock(row, c, 1);
-      const score = isExistingGap ? -1 : gapsAfter;
 
-      if (
-        !best ||
-        score < best.score ||
-        (score === best.score && centerDistance < best.centerDistance)
-      ) {
-        best = { rowIndex: r, colIndex: c, score, centerDistance };
-      }
+      // rowPreference: lower index = better (middle rows rank first in rowOrder)
+      const rowPreference = rowOrder.indexOf(r);
+
+      candidates.push({ rowIndex: r, colIndex: c, gapsAfter, isExistingGap, centerDistance, rowPreference });
     }
   }
 
-  if (!best) return null;
+  if (candidates.length === 0) return null;
+
+  // Sort: fewest new gaps → gap-fill (fills existing gap is better) → centre → row quality
+  candidates.sort((a, b) => {
+    if (a.gapsAfter !== b.gapsAfter)                 return a.gapsAfter - b.gapsAfter;
+    if (a.isExistingGap !== b.isExistingGap)         return a.isExistingGap ? -1 : 1;
+    if (a.centerDistance !== b.centerDistance)       return a.centerDistance - b.centerDistance;
+    return a.rowPreference - b.rowPreference;
+  });
+
+  const best = candidates[0];
   return bookBlock(cinema, best.rowIndex, best.colIndex, 1);
 }
 
@@ -144,15 +159,17 @@ function allocateGroup(cinema, groupSize) {
       if (!ok) continue;
 
       const { gapsAfter, centerDistance } = simulateBlock(row, c, groupSize);
-      candidates.push({ rowIndex: r, start: c, gapsAfter, centerDistance });
+      const rowPreference = rowOrder.indexOf(r);
+      candidates.push({ rowIndex: r, start: c, gapsAfter, centerDistance, rowPreference });
     }
   }
 
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => {
-    if (a.gapsAfter !== b.gapsAfter) return a.gapsAfter - b.gapsAfter;
-    return a.centerDistance - b.centerDistance;
+    if (a.gapsAfter      !== b.gapsAfter)      return a.gapsAfter      - b.gapsAfter;
+    if (a.centerDistance !== b.centerDistance) return a.centerDistance - b.centerDistance;
+    return a.rowPreference - b.rowPreference;
   });
 
   const best = candidates[0];
@@ -192,17 +209,17 @@ function allocateVIP(cinema, groupSize) {
         isExistingGap = leftBlocked && rightBlocked;
       }
 
-      const score = isExistingGap ? -1 : gapsAfter;
-      candidates.push({ rowIndex: r, start: c, score, gapsAfter, centerDistance });
+      candidates.push({ rowIndex: r, start: c, gapsAfter, isExistingGap, centerDistance });
     }
   }
 
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => {
-    if (a.score      !== b.score)      return a.score      - b.score;
-    if (a.gapsAfter  !== b.gapsAfter)  return a.gapsAfter  - b.gapsAfter;
-    return a.centerDistance - b.centerDistance;
+    if (a.gapsAfter      !== b.gapsAfter)                 return a.gapsAfter      - b.gapsAfter;
+    if (a.isExistingGap  !== b.isExistingGap)             return a.isExistingGap ? -1 : 1;
+    if (a.centerDistance !== b.centerDistance)            return a.centerDistance - b.centerDistance;
+    return a.rowIndex - b.rowIndex;
   });
 
   return bookBlock(cinema, candidates[0].rowIndex, candidates[0].start, groupSize);
