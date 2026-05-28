@@ -5,7 +5,7 @@
 
 const { ROWS } = require('./cinemaSetup');
 
-// VIP zone boundaries - must stay in sync with cinemaSetup.js
+// VIP zone boundaries — must stay in sync with cinemaSetup.js
 const VIP_ROW_START = 4;  // row E (0-indexed)
 const VIP_ROW_END   = 8;  // row I
 const VIP_COL_START = 11; // col 12 (0-indexed)
@@ -40,9 +40,9 @@ function countSingleGaps(row) {
 function simulateBlockInRange(row, startColIndex, groupSize, fromCol, toCol) {
   const rowCopy = row.map(s => ({ ...s }));
   for (let i = 0; i < groupSize; i++) rowCopy[startColIndex + i].status = 'BOOKED';
-  const gapsAfter     = countSingleGapsInRange(rowCopy, fromCol, toCol);
-  const rangeCenter   = (fromCol + toCol) / 2;
-  const blockCenter   = startColIndex + (groupSize - 1) / 2;
+  const gapsAfter      = countSingleGapsInRange(rowCopy, fromCol, toCol);
+  const rangeCenter    = (fromCol + toCol) / 2;
+  const blockCenter    = startColIndex + (groupSize - 1) / 2;
   const centerDistance = Math.abs(blockCenter - rangeCenter);
   return { gapsAfter, centerDistance };
 }
@@ -51,7 +51,7 @@ function simulateBlock(row, startColIndex, groupSize) {
   return simulateBlockInRange(row, startColIndex, groupSize, 0, row.length - 1);
 }
 
-// Preferred row scan order: middle rows first.
+// Preferred row scan order: middle rows first (used for first-row selection).
 function getPreferredRowOrder() {
   const indices = ROWS.map((_, i) => i);
   const center  = Math.floor(indices.length / 2);
@@ -68,15 +68,6 @@ function getMiddleOutCols(length) {
     if (mid - offset >= 0)     cols.push(mid - offset);
   }
   return cols;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// How many REGULAR seats are FREE in a row (no DISABILITY, VIP, BROKEN)
-// ─────────────────────────────────────────────────────────────────────────────
-function freeRegularSeatsInRow(row) {
-  return row.filter(
-    s => s.status === 'FREE' && s.type === 'REGULAR'
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,62 +201,73 @@ function allocateGroup(cinema, groupSize) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SPLIT FALLBACK — used only when no contiguous block exists for the group.
 //
-// Strategy (Option A — best-fit scoring):
-//   1. For every REGULAR row, calculate:
-//        - how many people it can absorb (largest contiguous FREE block,
-//          capped at remaining count)
-//        - how many new single-seat gaps that best placement creates
-//   2. Rank rows:  most absorbed first → fewest gaps second →
-//                  row closest to screen centre third
-//   3. Walk the ranked list, committing seats row by row until the whole
-//      group is placed or we run out of capacity.
-//   4. Returns the booked seats array tagged with `split: true`, or null
-//      if there genuinely is not enough total free capacity.
+// Strategy (Option A — best-fit with anchor proximity):
+//   1. Pick the best first row using fewest-gaps + screen-centre scoring.
+//   2. Record that row as the ANCHOR.
+//   3. For every subsequent sub-group, rank candidate rows by:
+//        a. proximity to anchor row  (primary — keeps the group together)
+//        b. most people absorbed     (secondary)
+//        c. fewest new gaps          (tertiary)
+//      This ensures the algorithm always looks at rows directly above/below
+//      the anchor before reaching for a distant row.
+//   4. Tags every seat with split:true so the API can inform the client.
 // ─────────────────────────────────────────────────────────────────────────────
 function allocateGroupSplit(cinema, groupSize) {
-  const rowOrder = getPreferredRowOrder();
-  let remaining  = groupSize;
+  const rowOrder  = getPreferredRowOrder();
+  let remaining   = groupSize;
+  let anchorRow   = null;   // set after first commit
   const allBooked = [];
 
-  // Score every row first — we pick the best row at each step.
-  // Re-scoring after each commit ensures we react to the updated cinema state.
   while (remaining > 0) {
     const rowScores = [];
 
     for (const r of rowOrder) {
-      const row         = cinema[r];
-      const canAbsorb   = Math.min(remaining, largestContiguousBlock(row));
+      const row       = cinema[r];
+      const canAbsorb = Math.min(remaining, largestContiguousBlock(row));
       if (canAbsorb === 0) continue;
 
       const blockResult = bestBlockInRow(row, canAbsorb);
       if (!blockResult) continue;
 
-      const rowPreference = rowOrder.indexOf(r);
+      // Distance from anchor (or screen centre when anchor not yet set)
+      const screenCenter    = Math.floor(rowOrder.length / 2);
+      const proximityTarget = anchorRow !== null ? anchorRow : screenCenter;
+      const proximityScore  = Math.abs(r - proximityTarget);
+
       rowScores.push({
-        rowIndex:    r,
+        rowIndex:     r,
         canAbsorb,
-        gapsAfter:   blockResult.gapsAfter,
-        start:       blockResult.start,
-        rowPreference
+        gapsAfter:    blockResult.gapsAfter,
+        start:        blockResult.start,
+        proximityScore
       });
     }
 
-    if (rowScores.length === 0) return null; // cinema genuinely full
+    if (rowScores.length === 0) return null;
 
-    // Best row: absorbs most → creates fewest gaps → nearest screen centre
     rowScores.sort((a, b) => {
-      if (b.canAbsorb   !== a.canAbsorb)   return b.canAbsorb   - a.canAbsorb;
-      if (a.gapsAfter   !== b.gapsAfter)   return a.gapsAfter   - b.gapsAfter;
-      return a.rowPreference - b.rowPreference;
+      // After anchor is set: proximity first, then absorb, then gaps
+      if (anchorRow !== null) {
+        if (a.proximityScore !== b.proximityScore) return a.proximityScore - b.proximityScore;
+        if (b.canAbsorb      !== a.canAbsorb)      return b.canAbsorb      - a.canAbsorb;
+        return a.gapsAfter - b.gapsAfter;
+      }
+      // First row: absorb most first, then fewest gaps, then screen centre
+      if (b.canAbsorb    !== a.canAbsorb)    return b.canAbsorb    - a.canAbsorb;
+      if (a.gapsAfter    !== b.gapsAfter)    return a.gapsAfter    - b.gapsAfter;
+      return a.proximityScore - b.proximityScore;
     });
 
-    const chosen  = rowScores[0];
-    const booked  = bookBlock(cinema, chosen.rowIndex, chosen.start, chosen.canAbsorb);
+    const chosen = rowScores[0];
+
+    // Set anchor on first commit
+    if (anchorRow === null) anchorRow = chosen.rowIndex;
+
+    const booked = bookBlock(cinema, chosen.rowIndex, chosen.start, chosen.canAbsorb);
     allBooked.push(...booked);
     remaining -= chosen.canAbsorb;
   }
 
-  // Tag the result so the API layer knows this was a split
   allBooked.forEach(s => { s.split = true; });
   return allBooked;
 }

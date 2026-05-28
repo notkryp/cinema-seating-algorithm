@@ -29,7 +29,7 @@ function makeRow(pattern) {
 // Map a row letter to its 0-based index
 const ROW_IDX = { A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,K:10,L:11,M:12,N:13,O:14 };
 
-// ─── countSingleGaps ──────────────────────────────────────────────────────────
+// ─── countSingleGaps ─────────────────────────────────────────────────────────
 
 describe('countSingleGaps', () => {
   test('empty row has no gaps', () => {
@@ -54,7 +54,7 @@ describe('countSingleGaps', () => {
   });
 });
 
-// ─── allocateDisability ───────────────────────────────────────────────────────
+// ─── allocateDisability ──────────────────────────────────────────────────────
 
 describe('allocateDisability', () => {
   test('books seats only in row A or B', () => {
@@ -86,7 +86,7 @@ describe('allocateDisability', () => {
   });
 });
 
-// ─── allocateVIP ──────────────────────────────────────────────────────────────
+// ─── allocateVIP ─────────────────────────────────────────────────────────────
 
 describe('allocateVIP', () => {
   test('books seats only in VIP rows E-I', () => {
@@ -114,7 +114,7 @@ describe('allocateVIP', () => {
   });
 });
 
-// ─── allocateGroup ────────────────────────────────────────────────────────────
+// ─── allocateGroup ───────────────────────────────────────────────────────────
 
 describe('allocateGroup', () => {
   test('books the right number of seats', () => {
@@ -156,7 +156,7 @@ describe('allocateGroup', () => {
 
   test('anti-scatter: picks the block that creates fewest single gaps', () => {
     const cinema = createCinema();
-    // Force a known gap in row G: cols 1-5 booked, col 7 booked → col 6 is trapped
+    // Force a known gap in row G: cols 1-5 booked, col 7 booked => col 6 is trapped
     for (let i = 0; i < 5; i++) cinema[6][i].status = 'BOOKED';
     cinema[6][6].status = 'BOOKED';
 
@@ -172,20 +172,18 @@ describe('allocateGroup', () => {
 describe('allocateGroupSplit (row-split fallback)', () => {
   test('seats the full group even when no single row has space', () => {
     const cinema = createCinema();
-    // Fill all REGULAR rows so each row only has a 3-seat gap max
-    // by booking cols 1-25 in every regular row (leaves cols 26-28 free = 3 seats)
-    for (let r = 2; r < 15; r++) { // rows C-O
+    // Book cols 1-25 in every regular row, leaving a 3-seat gap per row
+    for (let r = 2; r < 15; r++) {
       for (let c = 0; c < 25; c++) {
         if (cinema[r][c].type === 'REGULAR') cinema[r][c].status = 'BOOKED';
       }
     }
-    // group of 7 can't fit in 3 seats — needs at least 3 rows
     const result = allocateGroupSplit(cinema, 7);
     expect(result).not.toBeNull();
     expect(result.length).toBe(7);
   });
 
-  test('all split seats are REGULAR (not DISABILITY or VIP)', () => {
+  test('all split seats are REGULAR type', () => {
     const cinema = createCinema();
     for (let r = 2; r < 15; r++) {
       for (let c = 0; c < 25; c++) {
@@ -216,6 +214,28 @@ describe('allocateGroupSplit (row-split fallback)', () => {
     expect(result).not.toBeNull();
     result.forEach(s => expect(s.split).toBe(true));
   });
+
+  test('proximity: on a near-full cinema all subgroups land within 2 rows of each other', () => {
+    const cinema = createCinema();
+    // Leave only 2-3 seats free per row in the middle section
+    for (let r = 2; r < 15; r++) {
+      let freed = 0;
+      for (let c = cinema[r].length - 1; c >= 0; c--) {
+        if (cinema[r][c].type !== 'REGULAR') continue;
+        if (freed < 3) { freed++; continue; } // keep last 3 free
+        cinema[r][c].status = 'BOOKED';
+      }
+    }
+    const result = allocateGroupSplit(cinema, 7);
+    expect(result).not.toBeNull();
+    expect(result.length).toBe(7);
+
+    const rowIndices = result.map(s => ROW_IDX[s.row]);
+    const minRow     = Math.min(...rowIndices);
+    const maxRow     = Math.max(...rowIndices);
+    // All subgroups should be within a 3-row band (max spread = 2)
+    expect(maxRow - minRow).toBeLessThanOrEqual(2);
+  });
 });
 
 // ─── allocateSolo ─────────────────────────────────────────────────────────────
@@ -233,7 +253,7 @@ describe('allocateSolo', () => {
   });
 });
 
-// ─── allocateSeats (main entry) ────────────────────────────────────────────────
+// ─── allocateSeats (main entry) ───────────────────────────────────────────────
 
 describe('allocateSeats — main entry', () => {
   test('disability booking lands in row A or B', () => {
@@ -259,12 +279,11 @@ describe('allocateSeats — main entry', () => {
 
   test('falls back to split when no contiguous block is available', () => {
     const cinema = createCinema();
-    // Leave only 2-seat gaps in regular rows
+    // Leave only 2-seat gaps per regular row
     for (let r = 2; r < 15; r++) {
       let booked = 0;
       for (let c = 0; c < cinema[r].length; c++) {
         if (cinema[r][c].type !== 'REGULAR') continue;
-        // book in stretches of 26, leave 2 free
         if (booked < 26) { cinema[r][c].status = 'BOOKED'; booked++; }
       }
     }
