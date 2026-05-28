@@ -44,7 +44,7 @@ export default function App() {
       const d = await r.json();
       setCinema(d.cinema);
     } catch {
-      showToast('Cannot reach server — start backend on port 3001', false);
+      showToast('Can\'t reach the server — make sure the backend is running on port 3001', false);
     }
   }, []);
 
@@ -63,14 +63,14 @@ export default function App() {
       });
       const d = await r.json();
       if (!r.ok) {
-        showToast(d.error || 'No seats available', false);
+        showToast(d.error || 'No seats available right now', false);
         return;
       }
       setPendingSeats(d.seats);
       setCinema(d.cinema);
       setScreen('results');
     } catch {
-      showToast('Search failed', false);
+      showToast('Search failed — check your connection', false);
     } finally {
       setLoading(false);
     }
@@ -87,13 +87,13 @@ export default function App() {
         body:    JSON.stringify({ ...lastParams, adminOverride: admin }),
       });
       const d = await r.json();
-      if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
+      if (!r.ok) { showToast(d.error || 'Booking didn\'t go through', false); return; }
       setCinema(d.cinema);
-      showToast(`Booked: ${d.booking.seats.join('  ')}`);
+      showToast(`Booked! ${d.booking.seats.join('  ')}`);
       setScreen('wizard');
       setPendingSeats([]);
     } catch {
-      showToast('Booking failed', false);
+      showToast('Something went wrong — try again', false);
     } finally {
       setConfirming(false);
     }
@@ -115,13 +115,13 @@ export default function App() {
         }),
       });
       const d = await r.json();
-      if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
+      if (!r.ok) { showToast(d.error || 'Booking didn\'t go through', false); return; }
       setCinema(d.cinema);
-      showToast(`Booked: ${d.booking.seats.join('  ')}`);
+      showToast(`Booked! ${d.booking.seats.join('  ')}`);
       setScreen('wizard');
       setPendingSeats([]);
     } catch {
-      showToast('Booking failed', false);
+      showToast('Something went wrong — try again', false);
     } finally {
       setConfirming(false);
     }
@@ -134,12 +134,12 @@ export default function App() {
       setCinema(d.cinema);
       setPendingSeats([]);
       setScreen('wizard');
-      showToast('New session started');
-    } catch { showToast('Reset failed', false); }
+      showToast('Fresh session started');
+    } catch { showToast('Reset failed — try again', false); }
   }
 
   async function stressTest() {
-    showToast('Filling cinema…');
+    showToast('Filling up the cinema…');
     const groups = [3,2,4,2,5,1,3,2,6,2,4,1,2,3,2,4,3,1,2,5,3,2,4,2,3,1,5,2,3,4];
     for (const size of groups) {
       await fetch(`${API}/book`, {
@@ -149,7 +149,7 @@ export default function App() {
       }).catch(() => {});
     }
     await load();
-    showToast('Cinema half-filled!');
+    showToast('Cinema is half full — ready to demo!');
   }
 
   const s = stats(cinema);

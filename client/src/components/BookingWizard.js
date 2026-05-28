@@ -29,7 +29,6 @@ export default function BookingWizard({ onFindSeats, loading }) {
   const groupSelected  = seatType  === 'GROUP';
   const disabledLocked = vipSelected;
   const categoryLocked = disabled;
-  // disabled + group: max 2 (adjacent disabled pairs only)
   const maxPax = disabled ? 2 : 7;
   const minPax = 2;
 
@@ -70,7 +69,7 @@ export default function BookingWizard({ onFindSeats, loading }) {
       <div className="w-full max-w-4xl mx-auto">
         <div className="mb-5">
           <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Step 1 of 2</p>
-          <h2 className="text-lg font-semibold">Select a movie</h2>
+          <h2 className="text-lg font-semibold">Pick a movie</h2>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {MOVIES.map(m => (
@@ -79,7 +78,6 @@ export default function BookingWizard({ onFindSeats, loading }) {
               onClick={() => { setMovie(m); setStep(2); }}
               className="group text-left rounded-xl border border-border bg-secondary/40 hover:border-primary/60 hover:bg-secondary transition-all p-4"
             >
-              {/* Poster placeholder */}
               <div className="w-full aspect-[2/3] rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-border mb-3 flex items-center justify-center">
                 <Film className="w-8 h-8 text-primary/40" />
               </div>
@@ -108,7 +106,6 @@ export default function BookingWizard({ onFindSeats, loading }) {
 
   return (
     <div className="w-full max-w-sm mx-auto">
-      {/* Back + breadcrumb */}
       <button
         onClick={() => setStep(1)}
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-5"
@@ -120,7 +117,7 @@ export default function BookingWizard({ onFindSeats, loading }) {
       <div className="mb-5">
         <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Step 2 of 2</p>
         <h2 className="text-lg font-semibold">{movie?.title}</h2>
-        <p className="text-xs text-muted-foreground">Choose your seating requirements</p>
+        <p className="text-xs text-muted-foreground">Tell us what you need</p>
       </div>
 
       <div className="space-y-5">
@@ -171,7 +168,7 @@ export default function BookingWizard({ onFindSeats, loading }) {
                 }`}
               >
                 {val === 'GROUP' && <Users className="w-3.5 h-3.5 inline mr-1.5" />}
-                {val === 'SINGLE' ? 'Single' : 'Group'}
+                {val === 'SINGLE' ? 'Just me' : 'Group'}
               </button>
             ))}
           </div>
@@ -181,7 +178,7 @@ export default function BookingWizard({ onFindSeats, loading }) {
         {groupSelected && (
           <div>
             <p className="text-xs font-medium text-foreground mb-2">
-              No. of people
+              How many people?
               {disabled && <span className="ml-2 text-[11px] text-amber-500/80">(max 2 for accessibility)</span>}
             </p>
             <div className="flex items-center gap-3">
@@ -237,7 +234,7 @@ export default function BookingWizard({ onFindSeats, loading }) {
             })}
           </div>
           {disabledLocked && (
-            <p className="text-[11px] text-amber-500/80 mt-1.5">VIP seats are not accessibility seats</p>
+            <p className="text-[11px] text-amber-500/80 mt-1.5">VIP seats don't have accessibility access</p>
           )}
         </div>
 
@@ -250,10 +247,10 @@ export default function BookingWizard({ onFindSeats, loading }) {
 
         <button
           disabled={loading || !canFind}
-          onClick={() => onFindSeats(params)}
+          onClick={() => onFindSeats(params, movie)}
           className="w-full flex items-center justify-center gap-2 rounded-lg py-3 bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-60 hover:bg-primary/90 transition-colors"
         >
-          {loading ? 'Searching…' : 'Find seats →'}
+          {loading ? 'Looking…' : 'Find seats →'}
         </button>
 
       </div>
