@@ -17,46 +17,37 @@ function nextRef() {
   return `BK-${String(bookingCounter).padStart(5, '0')}`;
 }
 
-// Helper: after simulating the new booking, check whether any row now contains
-// a FREE seat that is TRULY trapped — i.e. blocked on BOTH sides by
-// (BOOKED | BROKEN | row-edge) AND was NOT already trapped before the booking.
-//
-// Key fix: we compare BEFORE vs AFTER the simulated booking so that filling
-// the gap between two existing bookings (e.g. booking J3-J4 when J2 and J5
-// are already booked) is always allowed — those seats were already trapped
-// before the new request and we are making things better, not worse.
-function newTrappedGapsCreated(cinemaBefore, cinemaAfter) {
-  function trappedGapsInRow(row) {
-    const trapped = new Set();
-    const len = row.length;
-    for (let i = 0; i < len; i++) {
-      const seat = row[i];
-      if (seat.status !== 'FREE' || seat.type === 'BROKEN') continue;
+// Helper for manual bookings: detect truly trapped single-seat gaps in a row
+// Mirrors the client-side getTrappedGaps logic but only cares about blocks of 1.
+function rowHasTrappedSingleGap(row) {
+  const len = row.length;
+  let i = 0;
 
-      const leftBlocked  = i === 0       || row[i - 1].status === 'BOOKED' || row[i - 1].type === 'BROKEN';
-      const rightBlocked = i === len - 1 || row[i + 1].status === 'BOOKED' || row[i + 1].type === 'BROKEN';
+  while (i < len) {
+    const seat = row[i];
 
-      if (leftBlocked && rightBlocked) trapped.add(i);
+    if (seat.status !== 'FREE' || seat.type === 'BROKEN') {
+      i++;
+      continue;
     }
-    return trapped;
+
+    const start = i;
+    while (i < len && row[i].status === 'FREE' && row[i].type !== 'BROKEN') i++;
+    const end = i - 1;
+    const blockSize = end - start + 1;
+
+    const leftIsWall  = start === 0;
+    const rightIsWall = end === len - 1;
+
+    const leftBlocked  = !leftIsWall  && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
+    const rightBlocked = !rightIsWall && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
+
+    const trapped = leftBlocked && rightBlocked;
+
+    if (trapped && blockSize === 1) return true;
   }
 
-  const badRows = [];
-
-  for (let r = 0; r < cinemaBefore.length; r++) {
-    const before = trappedGapsInRow(cinemaBefore[r]);
-    const after  = trappedGapsInRow(cinemaAfter[r]);
-
-    // Any gap that is in AFTER but was NOT in BEFORE is newly created
-    for (const col of after) {
-      if (!before.has(col)) {
-        badRows.push(cinemaAfter[r][0].row);
-        break;
-      }
-    }
-  }
-
-  return badRows;
+  return false;
 }
 
 // ── GET /api/cinema ───────────────────────────────────────────────────────────
@@ -139,7 +130,7 @@ app.post('/api/book/manual', (req, res) => {
   if (bookingType && !validTypes.includes(bookingType))
     return res.status(400).json({ error: 'That booking type is not recognised' });
 
-  // 1. Check all seats exist and are still free
+  // 1. Check all seats are still free
   const toBook = [];
   for (const rowArr of cinema) {
     for (const seat of rowArr) {
@@ -155,19 +146,21 @@ app.post('/api/book/manual', (req, res) => {
   if (toBook.length !== seatIds.length)
     return res.status(400).json({ error: "One or more of those seats don't exist in this cinema" });
 
-  // 2. Simulate booking and check ONLY for NEWLY created trapped single-seat gaps
-  //    (filling an existing gap is fine — it reduces trapped seats, not increases them)
+  // 2. Simulate booking and check for truly trapped single-seat gaps
   const simulated = cinema.map(row => row.map(s => ({ ...s })));
   for (const rowArr of simulated)
     for (const seat of rowArr)
       if (seatIds.includes(`${seat.row}${seat.col}`)) seat.status = 'BOOKED';
 
-  const badRows = newTrappedGapsCreated(cinema, simulated);
+  const oneGapRows = [];
+  for (const row of simulated) {
+    if (rowHasTrappedSingleGap(row)) oneGapRows.push(row[0].row);
+  }
 
-  if (badRows.length > 0) {
+  if (oneGapRows.length > 0) {
     return res.status(422).json({
       error: `Can't book those seats — it would leave a single empty seat stuck between bookings that nobody can use. Try picking a different spot.`,
-      rows: badRows
+      rows: oneGapRows
     });
   }
 
