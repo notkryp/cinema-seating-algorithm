@@ -8,22 +8,22 @@ import SeatResults   from './components/SeatResults';
 const API = 'http://localhost:3001/api';
 
 export default function App() {
-  const [cinema, setCinema]           = useState(null);
-  const [admin, setAdmin]             = useState(false);
-  const [adminPanel, setAdminPanel]   = useState(false);
-  const [toast, setToast]             = useState(null);
-  const [screen, setScreen]           = useState('wizard'); // 'wizard' | 'results'
+  const [cinema, setCinema]             = useState(null);
+  const [admin, setAdmin]               = useState(false);
+  const [adminPanel, setAdminPanel]     = useState(false);
+  const [toast, setToast]               = useState(null);
+  const [screen, setScreen]             = useState('wizard');
   const [pendingSeats, setPendingSeats] = useState([]);
-  const [lastParams, setLastParams]   = useState(null);
-  const [lastMovie, setLastMovie]     = useState(null);
-  const [confirming, setConfirming]   = useState(false);
-  const [loading, setLoading]         = useState(false);
+  const [lastParams, setLastParams]     = useState(null);
+  const [lastMovie, setLastMovie]       = useState(null);
+  const [confirming, setConfirming]     = useState(false);
+  const [loading, setLoading]           = useState(false);
   const toastTimer = useRef(null);
 
   function showToast(msg, ok = true) {
     clearTimeout(toastTimer.current);
     setToast({ msg, ok });
-    toastTimer.current = setTimeout(() => setToast(null), 4000);
+    toastTimer.current = setTimeout(() => setToast(null), 4500);
   }
 
   function stats(c) {
@@ -50,7 +50,7 @@ export default function App() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Screen 2 → Screen 3: PREVIEW (no commit) ─────────────────────────────
+  // ── Find seats (preview) ──────────────────────────────────────────────────
   async function handleFindSeats(params, movie) {
     setLoading(true);
     setLastParams(params);
@@ -66,9 +66,8 @@ export default function App() {
         showToast(d.error || 'No seats available', false);
         return;
       }
-      // d.seats = preview seats, d.cinema = unchanged cinema
       setPendingSeats(d.seats);
-      setCinema(d.cinema);   // refresh grid so it's up to date
+      setCinema(d.cinema);
       setScreen('results');
     } catch {
       showToast('Search failed', false);
@@ -77,7 +76,7 @@ export default function App() {
     }
   }
 
-  // ── Screen 3 confirm → COMMIT ─────────────────────────────────────────────
+  // ── Confirm algorithm recommendation ─────────────────────────────────────
   async function handleConfirm() {
     if (!lastParams) return;
     setConfirming(true);
@@ -90,7 +89,35 @@ export default function App() {
       const d = await r.json();
       if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
       setCinema(d.cinema);
-      showToast(`✓ Booked: ${d.booked.map(s => `${s.row}${s.col}`).join('  ')}`);
+      showToast(`Booked: ${d.booking.seats.join('  ')}`);
+      setScreen('wizard');
+      setPendingSeats([]);
+    } catch {
+      showToast('Booking failed', false);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  // ── Confirm manual seat picks ─────────────────────────────────────────────
+  async function handleConfirmManual(manualSeats) {
+    if (!lastParams) return;
+    setConfirming(true);
+    try {
+      const seatIds = manualSeats.map(s => `${s.row}${s.col}`);
+      const r = await fetch(`${API}/book/manual`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          seats:       seatIds,
+          bookingType: lastParams.bookingType,
+          movie:       lastMovie?.title,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { showToast(d.error || 'Booking failed', false); return; }
+      setCinema(d.cinema);
+      showToast(`Booked: ${d.booking.seats.join('  ')}`);
       setScreen('wizard');
       setPendingSeats([]);
     } catch {
@@ -136,8 +163,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
-
-      {/* HEADER */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Film className="w-5 h-5 text-primary" />
@@ -165,7 +190,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg ${
           toast.ok ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
@@ -174,7 +198,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Admin bar */}
       {adminPanel && (
         <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-6 py-3 flex items-center gap-4">
           <button
@@ -197,7 +220,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Main content */}
       <div className="p-6">
         {screen === 'wizard'
           ? <BookingWizard onFindSeats={handleFindSeats} loading={loading} />
@@ -207,6 +229,7 @@ export default function App() {
               movie={lastMovie}
               params={lastParams}
               onConfirm={handleConfirm}
+              onConfirmManual={handleConfirmManual}
               onBack={() => { setScreen('wizard'); setPendingSeats([]); }}
               confirming={confirming}
             />
