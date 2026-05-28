@@ -16,59 +16,68 @@ export function isVIPSeat(seat) {
 }
 
 /**
- * Scan a row and return info about FREE blocks that are genuinely
- * TRAPPED — i.e. bounded on BOTH sides by a BOOKED or BROKEN seat
- * (not just the row edge).
+ * Returns a Set of gap signatures for a row in the form "R:start-end".
+ * Only includes gaps that are TRULY TRAPPED — bounded on both sides by
+ * BOOKED/BROKEN seats (not the row edge, not a DISABILITY/VIP boundary).
  *
- * A gap touching the row edge is reachable and never wasted, so
- * we do NOT count those as problematic.
- *
- * Returns { hasOneGap, hasTwoGap }
+ * We treat DISABILITY and VIP type seats as a "zone wall" rather than a
+ * blocking booking, because they are never going to be sold to a regular
+ * customer and shouldn't trap the first/last regular seat.
  */
-function getTrappedGaps(row) {
-  let hasOneGap = false;
-  let hasTwoGap = false;
-
-  const len = row.length;
+function getTrappedGapSignatures(row) {
+  const sigs = new Set();
+  const len  = row.length;
   let i = 0;
 
   while (i < len) {
     const seat = row[i];
 
-    // Not a free seat — skip
-    if (seat.status !== 'FREE' || seat.type === 'BROKEN') {
+    if (seat.status !== 'FREE' || seat.type === 'BROKEN' ||
+        seat.type === 'DISABILITY' || seat.type === 'VIP') {
       i++;
       continue;
     }
 
-    // Found the start of a FREE run — measure it
     const start = i;
-    while (i < len && row[i].status === 'FREE' && row[i].type !== 'BROKEN') i++;
-    const end = i - 1; // inclusive
+    while (
+      i < len &&
+      row[i].status === 'FREE' &&
+      row[i].type !== 'BROKEN' &&
+      row[i].type !== 'DISABILITY' &&
+      row[i].type !== 'VIP'
+    ) i++;
+    const end       = i - 1;
     const blockSize = end - start + 1;
 
-    // Check what's on each side
-    const leftIsWall  = start === 0;
-    const rightIsWall = end === len - 1;
+    // Left boundary: row edge OR a non-REGULAR type seat acts as a wall
+    const leftIsWall = start === 0 ||
+      row[start - 1].type === 'DISABILITY' ||
+      row[start - 1].type === 'VIP';
 
-    const leftIsBooked  = !leftIsWall  && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
-    const rightIsBooked = !rightIsWall && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
+    // Right boundary: row edge OR a non-REGULAR type seat acts as a wall
+    const rightIsWall = end === len - 1 ||
+      row[end + 1].type === 'DISABILITY' ||
+      row[end + 1].type === 'VIP';
 
-    // Only flag if BOTH sides are blocked by bookings (truly trapped)
-    const trapped = leftIsBooked && rightIsBooked;
+    const leftBlocked  = !leftIsWall  && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
+    const rightBlocked = !rightIsWall && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
 
-    if (trapped) {
-      if (blockSize === 1) hasOneGap = true;
-      if (blockSize === 2) hasTwoGap = true;
+    if (leftBlocked && rightBlocked && (blockSize === 1 || blockSize === 2)) {
+      sigs.add(`${row[0].row}:${start}-${end}`);
     }
   }
 
-  return { hasOneGap, hasTwoGap };
+  return sigs;
 }
 
 /**
  * Given the current cinema grid and a proposed set of manual seat IDs,
- * simulate booking those seats and check for gap violations.
+ * simulate booking those seats and check whether the selection INTRODUCES
+ * any new gap that wasn't already there before.
+ *
+ * Key fix: we diff gap signatures BEFORE vs AFTER the simulation.
+ * Pre-existing gaps are completely ignored — we only care about gaps
+ * the user's click actually creates.
  *
  * Returns: { ok: true } or { ok: false, type: 'ONE_GAP'|'TWO_GAP', message, rows, isVipZone }
  */
@@ -77,51 +86,73 @@ export function validateManualSelection(cinema, selectedIds) {
 
   const selectedSet = new Set(selectedIds);
 
-  // Simulate the booking on a clone
+  // Gaps in the current state (before this selection)
+  const beforeGaps = new Map(); // rowLabel -> Set of gap sigs
+  for (const row of cinema) {
+    beforeGaps.set(row[0].row, getTrappedGapSignatures(row));
+  }
+
+  // Simulate the booking
   const simulated = cinema.map(row =>
     row.map(seat => {
       const id = `${seat.row}${seat.col}`;
-      if (selectedSet.has(id) && seat.status === 'FREE') {
-        return { ...seat, status: 'BOOKED' };
-      }
-      return { ...seat };
+      return selectedSet.has(id) && seat.status === 'FREE'
+        ? { ...seat, status: 'BOOKED' }
+        : { ...seat };
     })
   );
 
+  // Gaps after simulation
   const oneGapRows = [];
   const twoGapRows = [];
 
   for (const row of simulated) {
-    const { hasOneGap, hasTwoGap } = getTrappedGaps(row);
-    if (hasOneGap) oneGapRows.push(row[0].row);
-    else if (hasTwoGap) twoGapRows.push(row[0].row);
+    const label      = row[0].row;
+    const afterSigs  = getTrappedGapSignatures(row);
+    const beforeSigs = beforeGaps.get(label) || new Set();
+
+    // Only care about gaps that are NEW (didn't exist before this selection)
+    let newOneGap = false;
+    let newTwoGap = false;
+
+    for (const sig of afterSigs) {
+      if (beforeSigs.has(sig)) continue; // pre-existing, ignore
+      const [, range] = sig.split(':');
+      const [s, e]    = range.split('-').map(Number);
+      const size      = e - s + 1;
+      if (size === 1) newOneGap = true;
+      if (size === 2) newTwoGap = true;
+    }
+
+    if (newOneGap) oneGapRows.push(label);
+    else if (newTwoGap) twoGapRows.push(label);
   }
 
   if (oneGapRows.length > 0) {
-    const allVipRows = oneGapRows.every(r => {
+    const allVip = oneGapRows.every(r => {
       const idx = 'ABCDEFGHIJKLMNO'.indexOf(r);
       return idx >= VIP_ROW_START && idx <= VIP_ROW_END;
     });
     return {
       ok: false,
       type: 'ONE_GAP',
-      message: `That seat can't be booked — it would trap a single empty seat next to it that nobody can ever fill. Pick a different spot.`,
+      message: `That selection would trap a single empty seat that can never be sold. Pick a different spot.`,
       rows: oneGapRows,
-      isVipZone: allVipRows
+      isVipZone: allVip
     };
   }
 
   if (twoGapRows.length > 0) {
-    const allVipRows = twoGapRows.every(r => {
+    const allVip = twoGapRows.every(r => {
       const idx = 'ABCDEFGHIJKLMNO'.indexOf(r);
       return idx >= VIP_ROW_START && idx <= VIP_ROW_END;
     });
     return {
       ok: false,
       type: 'TWO_GAP',
-      message: `Just so you know, your pick leaves 2 seats squeezed between bookings. A couple could take them, but if not they'll go to waste. Still want these seats?`,
+      message: `Heads up — your selection leaves 2 seats squeezed between bookings. A couple could fill them, but if not they'll go to waste. Still want these seats?`,
       rows: twoGapRows,
-      isVipZone: allVipRows
+      isVipZone: allVip
     };
   }
 
