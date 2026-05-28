@@ -17,6 +17,39 @@ function nextRef() {
   return `BK-${String(bookingCounter).padStart(5, '0')}`;
 }
 
+// Helper for manual bookings: detect truly trapped single-seat gaps in a row
+// Mirrors the client-side getTrappedGaps logic but only cares about blocks of 1.
+function rowHasTrappedSingleGap(row) {
+  const len = row.length;
+  let i = 0;
+
+  while (i < len) {
+    const seat = row[i];
+
+    if (seat.status !== 'FREE' || seat.type === 'BROKEN') {
+      i++;
+      continue;
+    }
+
+    const start = i;
+    while (i < len && row[i].status === 'FREE' && row[i].type !== 'BROKEN') i++;
+    const end = i - 1;
+    const blockSize = end - start + 1;
+
+    const leftIsWall  = start === 0;
+    const rightIsWall = end === len - 1;
+
+    const leftBlocked  = !leftIsWall  && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
+    const rightBlocked = !rightIsWall && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
+
+    const trapped = leftBlocked && rightBlocked;
+
+    if (trapped && blockSize === 1) return true;
+  }
+
+  return false;
+}
+
 // ── GET /api/cinema ───────────────────────────────────────────────────────────
 app.get('/api/cinema', (req, res) => {
   res.json({ cinema });
@@ -113,7 +146,7 @@ app.post('/api/book/manual', (req, res) => {
   if (toBook.length !== seatIds.length)
     return res.status(400).json({ error: "One or more of those seats don't exist in this cinema" });
 
-  // 2. Simulate booking and check for single-seat gaps
+  // 2. Simulate booking and check for truly trapped single-seat gaps
   const simulated = cinema.map(row => row.map(s => ({ ...s })));
   for (const rowArr of simulated)
     for (const seat of rowArr)
@@ -121,14 +154,7 @@ app.post('/api/book/manual', (req, res) => {
 
   const oneGapRows = [];
   for (const row of simulated) {
-    let cur = 0;
-    let found1 = false;
-    for (const s of row) {
-      if (s.status === 'FREE' && s.type !== 'BROKEN') { cur++; }
-      else { if (cur === 1) found1 = true; cur = 0; }
-    }
-    if (cur === 1) found1 = true;
-    if (found1) oneGapRows.push(row[0].row);
+    if (rowHasTrappedSingleGap(row)) oneGapRows.push(row[0].row);
   }
 
   if (oneGapRows.length > 0) {
