@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Badge }      from './components/ui/badge';
 import { Button }     from './components/ui/button';
-import { Film, RotateCcw, Zap, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
+import { Film, RotateCcw, Zap, ShieldAlert } from 'lucide-react';
 import BookingWizard from './components/BookingWizard';
 import SeatResults   from './components/SeatResults';
 
@@ -9,8 +9,6 @@ const API = 'http://localhost:3001/api';
 
 export default function App() {
   const [cinema, setCinema]             = useState(null);
-  const [admin, setAdmin]               = useState(false);
-  const [adminPanel, setAdminPanel]     = useState(false);
   const [toast, setToast]               = useState(null);
   const [screen, setScreen]             = useState('wizard');
   const [pendingSeats, setPendingSeats] = useState([]);
@@ -50,7 +48,6 @@ export default function App() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Find seats (preview) ──────────────────────────────────────────────────
   async function handleFindSeats(params, movie) {
     setLoading(true);
     setLastParams(params);
@@ -59,13 +56,10 @@ export default function App() {
       const r = await fetch(`${API}/book/preview`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...params, adminOverride: admin }),
+        body:    JSON.stringify({ ...params, adminOverride: false }),
       });
       const d = await r.json();
-      if (!r.ok) {
-        showToast(d.error || 'No seats available right now', false);
-        return;
-      }
+      if (!r.ok) { showToast(d.error || 'No seats available right now', false); return; }
       setPendingSeats(d.seats);
       setCinema(d.cinema);
       setScreen('results');
@@ -76,7 +70,6 @@ export default function App() {
     }
   }
 
-  // ── Confirm algorithm recommendation ─────────────────────────────────────
   async function handleConfirm() {
     if (!lastParams) return;
     setConfirming(true);
@@ -84,7 +77,7 @@ export default function App() {
       const r = await fetch(`${API}/book`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ ...lastParams, adminOverride: admin }),
+        body:    JSON.stringify({ ...lastParams, adminOverride: false }),
       });
       const d = await r.json();
       if (!r.ok) { showToast(d.error || 'Booking didn\'t go through', false); return; }
@@ -99,7 +92,6 @@ export default function App() {
     }
   }
 
-  // ── Confirm manual seat picks ─────────────────────────────────────────────
   async function handleConfirmManual(manualSeats) {
     if (!lastParams) return;
     setConfirming(true);
@@ -135,7 +127,7 @@ export default function App() {
       setPendingSeats([]);
       setScreen('wizard');
       showToast('Fresh session started');
-    } catch { showToast('Reset failed — try again', false); }
+    } catch { showToast('Reset failed', false); }
   }
 
   async function stressTest() {
@@ -169,18 +161,33 @@ export default function App() {
           <span className="font-semibold tracking-tight">Cinema Seating</span>
         </div>
         <div className="flex items-center gap-3">
+          {/* Admin button — opens /admin in a new tab */}
           <button
-            onClick={() => setAdminPanel(p => !p)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              adminPanel
-                ? 'bg-yellow-500/15 border-yellow-500/50 text-yellow-400'
-                : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
-            }`}
+            onClick={() => window.open('/admin', '_blank')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary border-border text-muted-foreground hover:text-yellow-400 hover:border-yellow-500/50 hover:bg-yellow-500/10 transition-colors"
           >
             <ShieldAlert className="w-3.5 h-3.5" />
             Admin
-            {adminPanel ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
           </button>
+
+          {/* Half-fill shortcut */}
+          <button
+            onClick={stressTest}
+            title="Half-fill cinema"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <Zap className="w-4 h-4" />
+          </button>
+
+          {/* Reset shortcut */}
+          <button
+            onClick={reset}
+            title="Reset session"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+
           <span className="text-muted-foreground text-xs">{s.booked}/{s.total}</span>
           <div className="w-24 h-1.5 rounded-full bg-secondary overflow-hidden">
             <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${s.pct}%` }} />
@@ -195,28 +202,6 @@ export default function App() {
           toast.ok ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
         }`}>
           {toast.msg}
-        </div>
-      )}
-
-      {adminPanel && (
-        <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-6 py-3 flex items-center gap-4">
-          <button
-            onClick={() => setAdmin(a => !a)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              admin
-                ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
-                : 'bg-secondary text-muted-foreground border-border hover:text-foreground'
-            }`}
-          >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            Override {admin ? 'ON' : 'OFF'}
-          </button>
-          <Button variant="secondary" size="sm" onClick={stressTest}>
-            <Zap className="w-3.5 h-3.5 mr-1.5" /> Half-fill
-          </Button>
-          <Button variant="outline" size="sm" onClick={reset}>
-            <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reset session
-          </Button>
         </div>
       )}
 

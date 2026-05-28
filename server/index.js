@@ -21,9 +21,6 @@ function nextRef() {
 
 const VALID_TYPES = ['NORMAL', 'VIP', 'DISABILITY'];
 
-// Group size limits per booking type.
-// DISABILITY: 1-2 (paired accessibility seats only).
-// VIP/NORMAL: 1-7 as per the brief.
 const GROUP_LIMITS = {
   DISABILITY: { min: 1, max: 2 },
   VIP:        { min: 1, max: 7 },
@@ -40,8 +37,6 @@ function validateGroupSize(groupSize, bookingType) {
   return null;
 }
 
-// Detect truly trapped single-seat gaps after a manual booking simulation.
-// Mirrors the client-side validateManualSelection but at the server layer.
 function rowHasTrappedSingleGap(row) {
   const len = row.length;
   let i = 0;
@@ -160,7 +155,6 @@ app.post('/api/book/manual', (req, res) => {
   const sizeErr = validateGroupSize(seatIds.length, type);
   if (sizeErr) return res.status(400).json({ error: sizeErr });
 
-  // 1. Verify all seats exist and are still free
   const toBook = [];
   for (const rowArr of cinema) {
     for (const seat of rowArr) {
@@ -175,7 +169,6 @@ app.post('/api/book/manual', (req, res) => {
   if (toBook.length !== seatIds.length)
     return res.status(400).json({ error: "One or more seat IDs don't exist in this cinema" });
 
-  // 2. Simulate and check for trapped single-seat gaps
   const sim = cinema.map(row => row.map(s => ({ ...s })));
   for (const rowArr of sim)
     for (const s of rowArr)
@@ -192,7 +185,6 @@ app.post('/api/book/manual', (req, res) => {
     });
   }
 
-  // 3. Commit
   for (const rowArr of cinema)
     for (const s of rowArr)
       if (seatIds.includes(`${s.row}${s.col}`)) s.status = 'BOOKED';
@@ -209,6 +201,61 @@ app.post('/api/book/manual', (req, res) => {
     method:       'MANUAL'
   };
   bookings.push(booking);
+  res.json({ booking, cinema });
+});
+
+// ── POST /api/admin/move ──────────────────────────────────────────────────────
+// No constraints — admin can move any confirmed booking to any free seats.
+// The old seats are freed, the new seats are booked, booking record is updated.
+app.post('/api/admin/move', (req, res) => {
+  const { ref, newSeats } = req.body;
+
+  if (!ref)
+    return res.status(400).json({ error: 'ref is required' });
+  if (!newSeats || !Array.isArray(newSeats) || newSeats.length === 0)
+    return res.status(400).json({ error: 'newSeats must be a non-empty array of seat IDs' });
+
+  const booking = bookings.find(b => b.ref === ref && b.status === 'CONFIRMED');
+  if (!booking)
+    return res.status(404).json({ error: `Booking ${ref} not found or already cancelled` });
+
+  if (newSeats.length !== booking.groupSize)
+    return res.status(400).json({
+      error: `This booking has ${booking.groupSize} seat${booking.groupSize > 1 ? 's' : ''} — provide exactly that many new seats`
+    });
+
+  // Verify new seats exist and are free (or are the current booking's own seats)
+  const currentSeatSet = new Set(booking.seats);
+  for (const id of newSeats) {
+    let found = false;
+    for (const rowArr of cinema) {
+      for (const seat of rowArr) {
+        if (`${seat.row}${seat.col}` === id) {
+          found = true;
+          if (seat.status !== 'FREE' && !currentSeatSet.has(id))
+            return res.status(409).json({ error: `Seat ${id} is not available` });
+        }
+      }
+    }
+    if (!found)
+      return res.status(400).json({ error: `Seat ${id} does not exist` });
+  }
+
+  // Free the old seats
+  for (const rowArr of cinema)
+    for (const seat of rowArr)
+      if (currentSeatSet.has(`${seat.row}${seat.col}`)) seat.status = 'FREE';
+
+  // Book the new seats (no gap/type/zone checks — admin override)
+  for (const rowArr of cinema)
+    for (const seat of rowArr)
+      if (newSeats.includes(`${seat.row}${seat.col}`)) seat.status = 'BOOKED';
+
+  // Update booking record
+  booking.seats    = newSeats;
+  booking.movedAt  = new Date().toISOString();
+  booking.method   = booking.method === 'ALGORITHM' ? 'ALGORITHM+ADMIN_MOVE' : 'MANUAL+ADMIN_MOVE';
+
   res.json({ booking, cinema });
 });
 
