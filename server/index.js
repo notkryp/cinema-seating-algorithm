@@ -8,8 +8,8 @@ app.use(cors());
 app.use(express.json());
 
 // ─── In-memory state ──────────────────────────────────────────────────────────
-let cinema   = createCinema();
-let bookings = [];
+let cinema         = createCinema();
+let bookings       = [];
 let bookingCounter = 0;
 
 function nextRef() {
@@ -17,36 +17,49 @@ function nextRef() {
   return `BK-${String(bookingCounter).padStart(5, '0')}`;
 }
 
-// Helper for manual bookings: detect truly trapped single-seat gaps in a row
-// Mirrors the client-side getTrappedGaps logic but only cares about blocks of 1.
+// ─── Validation helpers ───────────────────────────────────────────────────────
+
+const VALID_TYPES = ['NORMAL', 'VIP', 'DISABILITY'];
+
+// Group size limits per booking type.
+// DISABILITY: 1-2 (paired accessibility seats only).
+// VIP/NORMAL: 1-7 as per the brief.
+const GROUP_LIMITS = {
+  DISABILITY: { min: 1, max: 2 },
+  VIP:        { min: 1, max: 7 },
+  NORMAL:     { min: 1, max: 7 }
+};
+
+function validateGroupSize(groupSize, bookingType) {
+  const type   = bookingType || 'NORMAL';
+  const limits = GROUP_LIMITS[type];
+  if (!limits) return 'Unrecognised booking type';
+  if (groupSize < limits.min || groupSize > limits.max) {
+    return `Group size for ${type} bookings must be between ${limits.min} and ${limits.max}`;
+  }
+  return null;
+}
+
+// Detect truly trapped single-seat gaps after a manual booking simulation.
+// Mirrors the client-side validateManualSelection but at the server layer.
 function rowHasTrappedSingleGap(row) {
   const len = row.length;
   let i = 0;
 
   while (i < len) {
     const seat = row[i];
-
-    if (seat.status !== 'FREE' || seat.type === 'BROKEN') {
-      i++;
-      continue;
-    }
+    if (seat.status !== 'FREE' || seat.type === 'BROKEN') { i++; continue; }
 
     const start = i;
     while (i < len && row[i].status === 'FREE' && row[i].type !== 'BROKEN') i++;
-    const end = i - 1;
+    const end       = i - 1;
     const blockSize = end - start + 1;
 
-    const leftIsWall  = start === 0;
-    const rightIsWall = end === len - 1;
+    const leftBlocked  = start > 0       && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
+    const rightBlocked = end   < len - 1 && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
 
-    const leftBlocked  = !leftIsWall  && (row[start - 1].status === 'BOOKED' || row[start - 1].type === 'BROKEN');
-    const rightBlocked = !rightIsWall && (row[end   + 1].status === 'BOOKED' || row[end   + 1].type === 'BROKEN');
-
-    const trapped = leftBlocked && rightBlocked;
-
-    if (trapped && blockSize === 1) return true;
+    if (leftBlocked && rightBlocked && blockSize === 1) return true;
   }
-
   return false;
 }
 
@@ -62,118 +75,133 @@ app.get('/api/bookings', (req, res) => {
 
 // ── POST /api/cinema/reset ────────────────────────────────────────────────────
 app.post('/api/cinema/reset', (req, res) => {
-  cinema   = createCinema();
-  bookings = [];
+  cinema         = createCinema();
+  bookings       = [];
+  bookingCounter = 0;
   res.json({ message: 'Session reset — fresh cinema loaded', cinema, bookings });
 });
 
 // ── POST /api/book/preview ────────────────────────────────────────────────────
 app.post('/api/book/preview', (req, res) => {
   const { groupSize, bookingType, adminOverride } = req.body;
-  if (!groupSize || groupSize < 1 || groupSize > 28)
-    return res.status(400).json({ error: 'Group size has to be between 1 and 28' });
-  const validTypes = ['NORMAL', 'VIP', 'DISABILITY'];
-  if (bookingType && !validTypes.includes(bookingType))
-    return res.status(400).json({ error: 'That booking type is not recognised' });
-  const seats = previewSeats(cinema, {
-    groupSize:     parseInt(groupSize),
-    bookingType:   bookingType || 'NORMAL',
-    adminOverride: adminOverride || false
-  });
+  const gs   = parseInt(groupSize);
+  const type = bookingType || 'NORMAL';
+
+  if (!gs || isNaN(gs))
+    return res.status(400).json({ error: 'groupSize is required and must be a number' });
+  if (!VALID_TYPES.includes(type))
+    return res.status(400).json({ error: `Booking type '${type}' is not recognised` });
+
+  const sizeErr = validateGroupSize(gs, type);
+  if (sizeErr) return res.status(400).json({ error: sizeErr });
+
+  const seats = previewSeats(cinema, { groupSize: gs, bookingType: type, adminOverride: adminOverride || false });
   if (!seats || seats.length === 0)
-    return res.status(409).json({ error: 'No seats available that fit this request' });
-  res.json({ seats, cinema });
+    return res.status(409).json({ error: 'No seats available for this request' });
+
+  const isSplit = seats.some(s => s.split);
+  res.json({ seats, cinema, split: isSplit });
 });
 
 // ── POST /api/book ────────────────────────────────────────────────────────────
-// Algorithm-recommended booking
 app.post('/api/book', (req, res) => {
   const { groupSize, bookingType, adminOverride, movie, customerName } = req.body;
-  if (!groupSize || groupSize < 1 || groupSize > 28)
-    return res.status(400).json({ error: 'Group size has to be between 1 and 28' });
-  const validTypes = ['NORMAL', 'VIP', 'DISABILITY'];
-  if (bookingType && !validTypes.includes(bookingType))
-    return res.status(400).json({ error: 'That booking type is not recognised' });
+  const gs   = parseInt(groupSize);
+  const type = bookingType || 'NORMAL';
 
-  const allocated = allocateSeats(cinema, {
-    groupSize:     parseInt(groupSize),
-    bookingType:   bookingType || 'NORMAL',
-    adminOverride: adminOverride || false
-  });
+  if (!gs || isNaN(gs))
+    return res.status(400).json({ error: 'groupSize is required and must be a number' });
+  if (!VALID_TYPES.includes(type))
+    return res.status(400).json({ error: `Booking type '${type}' is not recognised` });
+
+  const sizeErr = validateGroupSize(gs, type);
+  if (sizeErr) return res.status(400).json({ error: sizeErr });
+
+  const allocated = allocateSeats(cinema, { groupSize: gs, bookingType: type, adminOverride: adminOverride || false });
   if (!allocated || allocated.length === 0)
-    return res.status(409).json({ error: 'No seats available that fit this request' });
+    return res.status(409).json({ error: 'No seats available for this request' });
+
+  const isSplit = allocated.some(s => s.split);
 
   const booking = {
     ref:          nextRef(),
     customerName: customerName || 'Guest',
     movie:        movie || 'N/A',
-    bookingType:  bookingType || 'NORMAL',
-    groupSize:    parseInt(groupSize),
+    bookingType:  type,
+    groupSize:    gs,
     seats:        allocated.map(s => `${s.row}${s.col}`),
     bookedAt:     new Date().toISOString(),
     status:       'CONFIRMED',
-    method:       'ALGORITHM'
+    method:       'ALGORITHM',
+    split:        isSplit
   };
   bookings.push(booking);
-  res.json({ booking, cinema });
+  res.json({
+    booking,
+    cinema,
+    split: isSplit,
+    splitNote: isSplit
+      ? 'No single row had enough space — your group has been split across rows.'
+      : undefined
+  });
 });
 
 // ── POST /api/book/manual ─────────────────────────────────────────────────────
-// User manually picked seats — validate then commit
 app.post('/api/book/manual', (req, res) => {
   const { seats: seatIds, bookingType, movie, customerName } = req.body;
 
   if (!seatIds || !Array.isArray(seatIds) || seatIds.length === 0)
-    return res.status(400).json({ error: 'No seats were sent — please pass an array of seat IDs' });
+    return res.status(400).json({ error: 'No seats provided — pass an array of seat IDs' });
 
-  const validTypes = ['NORMAL', 'VIP', 'DISABILITY'];
-  if (bookingType && !validTypes.includes(bookingType))
-    return res.status(400).json({ error: 'That booking type is not recognised' });
+  const type = bookingType || 'NORMAL';
+  if (!VALID_TYPES.includes(type))
+    return res.status(400).json({ error: `Booking type '${type}' is not recognised` });
 
-  // 1. Check all seats are still free
+  const sizeErr = validateGroupSize(seatIds.length, type);
+  if (sizeErr) return res.status(400).json({ error: sizeErr });
+
+  // 1. Verify all seats exist and are still free
   const toBook = [];
   for (const rowArr of cinema) {
     for (const seat of rowArr) {
       const id = `${seat.row}${seat.col}`;
       if (seatIds.includes(id)) {
         if (seat.status !== 'FREE')
-          return res.status(409).json({ error: `Seat ${id} is already taken — try a different one` });
+          return res.status(409).json({ error: `Seat ${id} is no longer available` });
         toBook.push(seat);
       }
     }
   }
-
   if (toBook.length !== seatIds.length)
-    return res.status(400).json({ error: "One or more of those seats don't exist in this cinema" });
+    return res.status(400).json({ error: "One or more seat IDs don't exist in this cinema" });
 
-  // 2. Simulate booking and check for truly trapped single-seat gaps
-  const simulated = cinema.map(row => row.map(s => ({ ...s })));
-  for (const rowArr of simulated)
-    for (const seat of rowArr)
-      if (seatIds.includes(`${seat.row}${seat.col}`)) seat.status = 'BOOKED';
+  // 2. Simulate and check for trapped single-seat gaps
+  const sim = cinema.map(row => row.map(s => ({ ...s })));
+  for (const rowArr of sim)
+    for (const s of rowArr)
+      if (seatIds.includes(`${s.row}${s.col}`)) s.status = 'BOOKED';
 
-  const oneGapRows = [];
-  for (const row of simulated) {
-    if (rowHasTrappedSingleGap(row)) oneGapRows.push(row[0].row);
-  }
+  const gapRows = [];
+  for (const row of sim)
+    if (rowHasTrappedSingleGap(row)) gapRows.push(row[0].row);
 
-  if (oneGapRows.length > 0) {
+  if (gapRows.length > 0) {
     return res.status(422).json({
-      error: `Can't book those seats — it would leave a single empty seat stuck between bookings that nobody can use. Try picking a different spot.`,
-      rows: oneGapRows
+      error: `Booking these seats would leave a single empty seat trapped between bookings — it could never be sold. Try a different position.`,
+      rows: gapRows
     });
   }
 
   // 3. Commit
   for (const rowArr of cinema)
-    for (const seat of rowArr)
-      if (seatIds.includes(`${seat.row}${seat.col}`)) seat.status = 'BOOKED';
+    for (const s of rowArr)
+      if (seatIds.includes(`${s.row}${s.col}`)) s.status = 'BOOKED';
 
   const booking = {
     ref:          nextRef(),
     customerName: customerName || 'Guest',
     movie:        movie || 'N/A',
-    bookingType:  bookingType || 'NORMAL',
+    bookingType:  type,
     groupSize:    seatIds.length,
     seats:        seatIds,
     bookedAt:     new Date().toISOString(),
@@ -191,35 +219,32 @@ app.post('/api/cancel', (req, res) => {
   if (ref) {
     const idx = bookings.findIndex(b => b.ref === ref && b.status === 'CONFIRMED');
     if (idx === -1)
-      return res.status(404).json({ error: `Couldn't find booking ${ref} — it may already be cancelled` });
+      return res.status(404).json({ error: `Booking ${ref} not found or already cancelled` });
     const booking = bookings[idx];
     for (const rowArr of cinema)
-      for (const seat of rowArr)
-        if (booking.seats.includes(`${seat.row}${seat.col}`) && seat.status === 'BOOKED')
-          seat.status = 'FREE';
+      for (const s of rowArr)
+        if (booking.seats.includes(`${s.row}${s.col}`) && s.status === 'BOOKED') s.status = 'FREE';
     booking.status      = 'CANCELLED';
     booking.cancelledAt = new Date().toISOString();
-    return res.json({ message: `${ref} cancelled — ${booking.seats.length} seat(s) freed up`, booking, cinema });
+    return res.json({ message: `${ref} cancelled — ${booking.seats.length} seat(s) freed`, booking, cinema });
   }
 
   if (seats && Array.isArray(seats)) {
-    let cancelled = 0;
+    let freed = 0;
     for (const rowArr of cinema)
-      for (const seat of rowArr)
-        if (seats.includes(`${seat.row}${seat.col}`) && seat.status === 'BOOKED') {
-          seat.status = 'FREE'; cancelled++;
-        }
+      for (const s of rowArr)
+        if (seats.includes(`${s.row}${s.col}`) && s.status === 'BOOKED') { s.status = 'FREE'; freed++; }
     for (const b of bookings)
       if (b.status === 'CONFIRMED' && b.seats.every(s => seats.includes(s))) {
         b.status = 'CANCELLED'; b.cancelledAt = new Date().toISOString();
       }
-    return res.json({ message: `${cancelled} seat(s) freed up`, cinema });
+    return res.json({ message: `${freed} seat(s) freed`, cinema });
   }
 
-  res.status(400).json({ error: 'Send either a booking ref or a list of seat IDs' });
+  res.status(400).json({ error: 'Send either a booking ref or an array of seat IDs' });
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Cinema seating server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Cinema API running on :${PORT}`));
 
 module.exports = app;

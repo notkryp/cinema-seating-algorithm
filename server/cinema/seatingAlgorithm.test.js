@@ -1,5 +1,6 @@
-// tests for the seating algorithm
-// written before coding (TDD) - these check the core logic works
+// seatingAlgorithm.test.js
+// TDD-first tests — written to define expected behaviour before implementation.
+// Covers gap detection, each booking type, the split fallback, and stress.
 
 const { createCinema } = require('./cinemaSetup');
 const {
@@ -8,48 +9,52 @@ const {
   allocateDisability,
   allocateVIP,
   allocateGroup,
+  allocateGroupSplit,
   allocateSolo
 } = require('./seatingAlgorithm');
 
-// helper to make a fake row quickly for testing gaps
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+// Build a minimal fake row from a pattern string.
+// B = BOOKED  F = FREE  X = BROKEN
 function makeRow(pattern) {
-  // pattern is a string like 'BBBFF BB' where B=BOOKED F=FREE X=BROKEN
   return pattern.split('').map((ch, i) => ({
-    row: 'A',
-    col: i + 1,
-    type: ch === 'X' ? 'BROKEN' : 'REGULAR',
+    row:    'A',
+    col:    i + 1,
+    type:   ch === 'X' ? 'BROKEN' : 'REGULAR',
     status: ch === 'B' ? 'BOOKED' : ch === 'X' ? 'BROKEN' : 'FREE'
   }));
 }
 
+// Map a row letter to its 0-based index
+const ROW_IDX = { A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,K:10,L:11,M:12,N:13,O:14 };
+
+// ─── countSingleGaps ──────────────────────────────────────────────────────────
+
 describe('countSingleGaps', () => {
-  test('no gaps when row is empty', () => {
-    const row = makeRow('FFFFFFFF');
-    expect(countSingleGaps(row)).toBe(0);
+  test('empty row has no gaps', () => {
+    expect(countSingleGaps(makeRow('FFFFFFFF'))).toBe(0);
   });
 
-  test('detects one single gap between two booked seats', () => {
-    // B F B - the middle free seat is a gap
-    const row = makeRow('BFB');
-    expect(countSingleGaps(row)).toBe(1);
+  test('single free seat between two booked seats is a gap', () => {
+    expect(countSingleGaps(makeRow('BFB'))).toBe(1);
   });
 
-  test('does not count two adjacent free seats as a gap', () => {
-    const row = makeRow('BFFB');
-    expect(countSingleGaps(row)).toBe(0);
+  test('two adjacent free seats are not a gap', () => {
+    expect(countSingleGaps(makeRow('BFFB'))).toBe(0);
   });
 
-  test('broken seats do not count as gaps', () => {
-    const row = makeRow('BXB');
-    expect(countSingleGaps(row)).toBe(0);
+  test('broken seats are not counted as gaps', () => {
+    expect(countSingleGaps(makeRow('BXB'))).toBe(0);
   });
 
-  test('counts multiple gaps correctly', () => {
-    // B F B F B = 2 gaps
-    const row = makeRow('BFBFB');
-    expect(countSingleGaps(row)).toBe(2);
+  test('counts multiple independent gaps', () => {
+    // B F B F B => 2 gaps
+    expect(countSingleGaps(makeRow('BFBFB'))).toBe(2);
   });
 });
+
+// ─── allocateDisability ───────────────────────────────────────────────────────
 
 describe('allocateDisability', () => {
   test('books seats only in row A or B', () => {
@@ -59,16 +64,14 @@ describe('allocateDisability', () => {
     expect(['A', 'B']).toContain(result[0].row);
   });
 
-  test('only books seats of type DISABILITY', () => {
+  test('all booked seats are type DISABILITY', () => {
     const cinema = createCinema();
     const result = allocateDisability(cinema, 2);
     expect(result).not.toBeNull();
-    result.forEach(seat => {
-      expect(seat.type).toBe('DISABILITY');
-    });
+    result.forEach(s => expect(s.type).toBe('DISABILITY'));
   });
 
-  test('books seats next to each other', () => {
+  test('seats are adjacent', () => {
     const cinema = createCinema();
     const result = allocateDisability(cinema, 2);
     expect(result).not.toBeNull();
@@ -77,45 +80,41 @@ describe('allocateDisability', () => {
 
   test('returns null when all disability seats are full', () => {
     const cinema = createCinema();
-    // book all disability seats first
     allocateDisability(cinema, 3);
     allocateDisability(cinema, 3);
-    // now try to book another
-    const result = allocateDisability(cinema, 1);
-    expect(result).toBeNull();
+    expect(allocateDisability(cinema, 1)).toBeNull();
   });
 });
 
+// ─── allocateVIP ──────────────────────────────────────────────────────────────
+
 describe('allocateVIP', () => {
-  test('books seats only in VIP rows (E to I)', () => {
+  test('books seats only in VIP rows E-I', () => {
     const cinema = createCinema();
     const result = allocateVIP(cinema, 2);
     expect(result).not.toBeNull();
-    const vipRows = ['E', 'F', 'G', 'H', 'I'];
-    result.forEach(seat => {
-      expect(vipRows).toContain(seat.row);
-    });
+    result.forEach(s => expect(['E','F','G','H','I']).toContain(s.row));
   });
 
-  test('books only VIP type seats', () => {
+  test('all booked seats are type VIP', () => {
     const cinema = createCinema();
     const result = allocateVIP(cinema, 2);
     expect(result).not.toBeNull();
-    result.forEach(seat => {
-      expect(seat.type).toBe('VIP');
-    });
+    result.forEach(s => expect(s.type).toBe('VIP'));
   });
 
-  test('VIP seats are in columns 12 to 15', () => {
+  test('VIP seats land in columns 12-15', () => {
     const cinema = createCinema();
     const result = allocateVIP(cinema, 1);
     expect(result).not.toBeNull();
-    result.forEach(seat => {
-      expect(seat.col).toBeGreaterThanOrEqual(12);
-      expect(seat.col).toBeLessThanOrEqual(15);
+    result.forEach(s => {
+      expect(s.col).toBeGreaterThanOrEqual(12);
+      expect(s.col).toBeLessThanOrEqual(15);
     });
   });
 });
+
+// ─── allocateGroup ────────────────────────────────────────────────────────────
 
 describe('allocateGroup', () => {
   test('books the right number of seats', () => {
@@ -125,15 +124,14 @@ describe('allocateGroup', () => {
     expect(result.length).toBe(4);
   });
 
-  test('all seats in the same row', () => {
+  test('all seats are in the same row', () => {
     const cinema = createCinema();
     const result = allocateGroup(cinema, 3);
     expect(result).not.toBeNull();
-    const rows = result.map(s => s.row);
-    expect(new Set(rows).size).toBe(1);
+    expect(new Set(result.map(s => s.row)).size).toBe(1);
   });
 
-  test('seats are next to each other', () => {
+  test('seats are contiguous', () => {
     const cinema = createCinema();
     const result = allocateGroup(cinema, 3);
     expect(result).not.toBeNull();
@@ -146,105 +144,140 @@ describe('allocateGroup', () => {
     const cinema = createCinema();
     const result = allocateGroup(cinema, 2);
     expect(result).not.toBeNull();
-    result.forEach(seat => {
-      expect(seat.type).not.toBe('BROKEN');
-      expect(seat.status).not.toBe('BROKEN');
-    });
+    result.forEach(s => expect(s.status).not.toBe('BROKEN'));
   });
 
-  test('does not book disability seats for normal group', () => {
+  test('does not book disability seats for a regular group', () => {
     const cinema = createCinema();
     const result = allocateGroup(cinema, 2);
     expect(result).not.toBeNull();
-    result.forEach(seat => {
-      expect(seat.type).not.toBe('DISABILITY');
-    });
+    result.forEach(s => expect(s.type).not.toBe('DISABILITY'));
   });
 
-  test('anti-scatter: picks block that creates fewest single gaps', () => {
-    // build a specific cinema state manually
+  test('anti-scatter: picks the block that creates fewest single gaps', () => {
     const cinema = createCinema();
-    // book seats 1 to 5 in row G (index 6), then book seat 7
-    // col index 0 to 4 = cols 1 to 5 booked, col 6 = col 7 booked
-    // leaves col 5 (col 6) as a single gap
-    // now booking group of 2 should NOT land at cols 6-7 because that would make it worse
-    for (let i = 0; i < 5; i++) {
-      cinema[6][i].status = 'BOOKED';
-    }
+    // Force a known gap in row G: cols 1-5 booked, col 7 booked → col 6 is trapped
+    for (let i = 0; i < 5; i++) cinema[6][i].status = 'BOOKED';
     cinema[6][6].status = 'BOOKED';
-    // col 5 (index 5) is now a single gap in row G
-    // a good algorithm should try to fill that gap or go to another row
+
     const result = allocateGroup(cinema, 2);
     expect(result).not.toBeNull();
-    // result should not create extra gaps
-    const rowAfter = cinema[result[0].row === 'A' ? 0 :
-      result[0].row === 'B' ? 1 :
-      result[0].row === 'C' ? 2 :
-      result[0].row === 'D' ? 3 :
-      result[0].row === 'E' ? 4 :
-      result[0].row === 'F' ? 5 :
-      result[0].row === 'G' ? 6 :
-      result[0].row === 'H' ? 7 :
-      result[0].row === 'I' ? 8 :
-      result[0].row === 'J' ? 9 :
-      result[0].row === 'K' ? 10 :
-      result[0].row === 'L' ? 11 :
-      result[0].row === 'M' ? 12 :
-      result[0].row === 'N' ? 13 : 14
-    ];
-    const gaps = countSingleGaps(rowAfter);
-    expect(gaps).toBeLessThanOrEqual(1);
+    const rowAfter = cinema[ROW_IDX[result[0].row]];
+    expect(countSingleGaps(rowAfter)).toBeLessThanOrEqual(1);
   });
 });
+
+// ─── allocateGroupSplit ───────────────────────────────────────────────────────
+
+describe('allocateGroupSplit (row-split fallback)', () => {
+  test('seats the full group even when no single row has space', () => {
+    const cinema = createCinema();
+    // Fill all REGULAR rows so each row only has a 3-seat gap max
+    // by booking cols 1-25 in every regular row (leaves cols 26-28 free = 3 seats)
+    for (let r = 2; r < 15; r++) { // rows C-O
+      for (let c = 0; c < 25; c++) {
+        if (cinema[r][c].type === 'REGULAR') cinema[r][c].status = 'BOOKED';
+      }
+    }
+    // group of 7 can't fit in 3 seats — needs at least 3 rows
+    const result = allocateGroupSplit(cinema, 7);
+    expect(result).not.toBeNull();
+    expect(result.length).toBe(7);
+  });
+
+  test('all split seats are REGULAR (not DISABILITY or VIP)', () => {
+    const cinema = createCinema();
+    for (let r = 2; r < 15; r++) {
+      for (let c = 0; c < 25; c++) {
+        if (cinema[r][c].type === 'REGULAR') cinema[r][c].status = 'BOOKED';
+      }
+    }
+    const result = allocateGroupSplit(cinema, 5);
+    expect(result).not.toBeNull();
+    result.forEach(s => expect(s.type).toBe('REGULAR'));
+  });
+
+  test('returns null when cinema has no capacity left', () => {
+    const cinema = createCinema();
+    for (const row of cinema)
+      for (const s of row)
+        if (s.status === 'FREE') s.status = 'BOOKED';
+    expect(allocateGroupSplit(cinema, 3)).toBeNull();
+  });
+
+  test('split seats are tagged with split:true', () => {
+    const cinema = createCinema();
+    for (let r = 2; r < 15; r++) {
+      for (let c = 0; c < 25; c++) {
+        if (cinema[r][c].type === 'REGULAR') cinema[r][c].status = 'BOOKED';
+      }
+    }
+    const result = allocateGroupSplit(cinema, 4);
+    expect(result).not.toBeNull();
+    result.forEach(s => expect(s.split).toBe(true));
+  });
+});
+
+// ─── allocateSolo ─────────────────────────────────────────────────────────────
 
 describe('allocateSolo', () => {
   test('books exactly 1 seat', () => {
     const cinema = createCinema();
-    const result = allocateSolo(cinema);
-    expect(result).not.toBeNull();
-    expect(result.length).toBe(1);
+    expect(allocateSolo(cinema).length).toBe(1);
   });
 
   test('does not book a broken seat', () => {
     const cinema = createCinema();
     const result = allocateSolo(cinema);
-    expect(result).not.toBeNull();
     expect(result[0].type).not.toBe('BROKEN');
   });
 });
 
-describe('allocateSeats (main entry)', () => {
-  test('disability booking goes to row A or B', () => {
+// ─── allocateSeats (main entry) ────────────────────────────────────────────────
+
+describe('allocateSeats — main entry', () => {
+  test('disability booking lands in row A or B', () => {
     const cinema = createCinema();
     const result = allocateSeats(cinema, { groupSize: 2, bookingType: 'DISABILITY', adminOverride: false });
     expect(result).not.toBeNull();
     expect(['A', 'B']).toContain(result[0].row);
   });
 
-  test('VIP booking goes to VIP zone', () => {
+  test('VIP booking lands in the VIP zone', () => {
     const cinema = createCinema();
     const result = allocateSeats(cinema, { groupSize: 2, bookingType: 'VIP', adminOverride: false });
     expect(result).not.toBeNull();
-    const vipRows = ['E', 'F', 'G', 'H', 'I'];
-    expect(vipRows).toContain(result[0].row);
+    expect(['E','F','G','H','I']).toContain(result[0].row);
   });
 
-  test('admin override books anywhere ignoring rules', () => {
+  test('admin override books regardless of type zones', () => {
     const cinema = createCinema();
     const result = allocateSeats(cinema, { groupSize: 5, bookingType: 'NORMAL', adminOverride: true });
     expect(result).not.toBeNull();
     expect(result.length).toBe(5);
   });
 
-  test('returns null when cinema is full', () => {
+  test('falls back to split when no contiguous block is available', () => {
     const cinema = createCinema();
-    // book everything
-    for (const row of cinema) {
-      for (const seat of row) {
-        if (seat.status === 'FREE') seat.status = 'BOOKED';
+    // Leave only 2-seat gaps in regular rows
+    for (let r = 2; r < 15; r++) {
+      let booked = 0;
+      for (let c = 0; c < cinema[r].length; c++) {
+        if (cinema[r][c].type !== 'REGULAR') continue;
+        // book in stretches of 26, leave 2 free
+        if (booked < 26) { cinema[r][c].status = 'BOOKED'; booked++; }
       }
     }
-    const result = allocateSeats(cinema, { groupSize: 2, bookingType: 'NORMAL', adminOverride: false });
-    expect(result).toBeNull();
+    const result = allocateSeats(cinema, { groupSize: 5, bookingType: 'NORMAL', adminOverride: false });
+    expect(result).not.toBeNull();
+    expect(result.length).toBe(5);
+  });
+
+  test('returns null when cinema is completely full', () => {
+    const cinema = createCinema();
+    for (const row of cinema)
+      for (const s of row)
+        if (s.status === 'FREE') s.status = 'BOOKED';
+    expect(allocateSeats(cinema, { groupSize: 2, bookingType: 'NORMAL', adminOverride: false })).toBeNull();
   });
 });
